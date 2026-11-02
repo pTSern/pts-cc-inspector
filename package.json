@@ -1,0 +1,20 @@
+{
+  "name": "pts-cc-inspector",
+  "version": "1.0.0-alpha",
+  "private": true,
+  "type": "module",
+  "description": "Local Cocos Creator runtime inspector for Chrome and Edge",
+  "scripts": {
+    "build": "tsx scripts/build.ts",
+    "check": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.30",
+    "@types/node": "^20.19.0",
+    "esbuild": "^0.25.0",
+    "prettier": "3.6.2",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}
