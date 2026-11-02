@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { isRequest, normalizeSettings } from "../src/shared/protocol";
+import { safePath, valueKind } from "../src/runtime/properties";
 
 test("refresh preferences cannot schedule an unbounded or excessively tight polling loop", () => {
   assert.equal(normalizeSettings({ refreshMs: 1 }).refreshMs, 250);
@@ -41,4 +42,31 @@ test("page requests cannot introduce executable commands or malformed correlatio
     false,
   );
   assert.equal(isRequest(null), false);
+});
+
+test("valueKind distinguishes engine value structs from nodes and components with x/y/z or width/height", () => {
+  class Vec3 {
+    x = 1;
+    y = 2;
+    z = 3;
+  }
+  class Node {
+    x = 10;
+    y = 20;
+    z = 0;
+    width = 100;
+    height = 80;
+  }
+  const cc = { Vec3 };
+  assert.equal(valueKind(new Vec3(), cc), "vec3");
+  assert.equal(valueKind(new Node(), cc), "object");
+});
+
+test("safePath rejects prototype and constructor traversal", () => {
+  assert.throws(() => safePath(["node", "__proto__", "polluted"]), {
+    name: "InspectorError",
+  });
+  assert.throws(() => safePath(["node", "constructor", "prototype"]), {
+    name: "InspectorError",
+  });
 });

@@ -5,10 +5,18 @@ import {
   type RuntimeResponse,
 } from "../shared/protocol";
 import { EngineInspector } from "./engine";
+declare const __PTS_BUILD_ID__: string;
 interface InstalledRuntime {
+  buildId: string;
   dispose: () => void;
 }
 const world = window as Window & { __ptsInspectorRuntime?: InstalledRuntime };
+if (
+  world.__ptsInspectorRuntime &&
+  world.__ptsInspectorRuntime.buildId !== __PTS_BUILD_ID__
+) {
+  world.__ptsInspectorRuntime.dispose();
+}
 if (!world.__ptsInspectorRuntime) {
   let session = "";
   let disposed = false;
@@ -44,14 +52,28 @@ if (!world.__ptsInspectorRuntime) {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const explicitCode =
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        typeof error.code === "string" &&
+        /^[A-Z0-9_]{2,64}$/.test(error.code)
+          ? error.code
+          : null;
       const separator = message.indexOf(":");
+      const prefixCode =
+        separator > 0 && /^[A-Z0-9_]{2,64}$/.test(message.slice(0, separator))
+          ? message.slice(0, separator)
+          : null;
       response = {
         id: request.id,
         ok: false,
         error: {
-          code: separator > 0 ? message.slice(0, separator) : "RUNTIME_ERROR",
+          code: explicitCode || prefixCode || "RUNTIME_ERROR",
           message:
-            separator > 0 ? message.slice(separator + 1).trim() : message,
+            prefixCode && !explicitCode
+              ? message.slice(separator + 1).trim()
+              : message,
         },
       };
     }
@@ -74,7 +96,7 @@ if (!world.__ptsInspectorRuntime) {
     window.removeEventListener("pagehide", dispose);
     delete world.__ptsInspectorRuntime;
   }
-  world.__ptsInspectorRuntime = { dispose };
+  world.__ptsInspectorRuntime = { buildId: __PTS_BUILD_ID__, dispose };
   window.addEventListener("message", listener);
   window.addEventListener("pagehide", dispose, { once: true });
 }

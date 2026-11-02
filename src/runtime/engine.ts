@@ -28,6 +28,17 @@ import {
 import { SelectionOverlay } from "./overlay";
 import { imagePreview, replaceImage, type ImagePreview } from "./images";
 import { DrawCallAttribution } from "./draw-calls";
+import {
+  cocosNamespace,
+  isObject,
+  numericFields,
+  type CocosNamespace,
+  type EngineNode,
+  type EngineComponent,
+  type EngineDirector,
+  type EngineAtlas,
+  type EngineAsset,
+} from "./contracts";
 
 const MAX_NODES = 20000;
 const NODE_FIELDS = [
@@ -108,7 +119,7 @@ interface Handler {
   target: EngineObject | Function;
 }
 interface Breakpoint {
-  node: EngineObject;
+  node: EngineNode;
   event: string;
   listener: () => void;
 }
@@ -133,13 +144,13 @@ function requiredString(value: unknown, name: string): string {
 
 /** Owns live engine references only for the current scene generation. Never changes game-node metadata. */
 export class EngineInspector {
-  private cc: EngineObject = {};
-  private scene: EngineObject | null = null;
+  private cc: CocosNamespace = {};
+  private scene: EngineNode | null = null;
   private generation = crypto.getRandomValues(new Uint32Array(1))[0];
   private sequence = 0;
   private ids = new WeakMap<object, string>();
-  private nodes = new Map<string, EngineObject>();
-  private components = new Map<string, EngineObject>();
+  private nodes = new Map<string, EngineNode>();
+  private components = new Map<string, EngineComponent>();
   private breakpoints: Breakpoint[] = [];
   private overlay: SelectionOverlay;
   private disposed = false;
@@ -148,13 +159,13 @@ export class EngineInspector {
   private debuggerTarget: unknown;
   private atlasVisible = false;
   private fpsRestore: {
-    engine: EngineObject;
+    engine: CocosNamespace;
     visible: boolean;
     applied: boolean;
   } | null = null;
   private imagePreviews = new Map<object, ImagePreview>();
   private modifiedImages = new WeakSet<object>();
-  private sceneDirector: EngineObject | null = null;
+  private sceneDirector: EngineDirector | null = null;
   private drawAttribution: DrawCallAttribution | null = null;
   private sceneEvent: string | null = null;
   private sceneLaunched = (): void => {
@@ -181,13 +192,14 @@ export class EngineInspector {
   private sync(): boolean {
     if (this.disposed) fail("DETACHED", "The inspector has been detached.");
     // An ES-module game may explicitly register its namespace without changing the original global cc.
-    const globals = globalThis as unknown as EngineObject;
-    const engine = globals.__PTS_CC_INSPECTOR_ENGINE__ || globals.cc;
-    const version = String(engine?.ENGINE_VERSION || engine?.VERSION || "");
+    const globals = globalThis as typeof globalThis & EngineObject;
+    const candidate = globals.__PTS_CC_INSPECTOR_ENGINE__ || globals.cc;
+    const engine = cocosNamespace(candidate) || {};
+    const version = String(engine.ENGINE_VERSION || engine.VERSION || "");
     if (
       !engine ||
       !/^[23](?:\.|$)/.test(version) ||
-      !engine.director?.getScene
+      typeof engine.director?.getScene !== "function"
     ) {
       if (this.scene || this.nodes.size) this.changeScene(null, engine || {});
       this.cc = engine || {};
@@ -204,12 +216,12 @@ export class EngineInspector {
       if (this.sceneEvent)
         this.sceneDirector?.on?.(this.sceneEvent, this.sceneLaunched);
     }
-    const scene = engine.director.getScene() || null;
+    const scene = engine.director!.getScene() || null;
     if (engine !== this.cc || scene !== this.scene)
       this.changeScene(scene, engine);
     return true;
   }
-  private changeScene(scene: EngineObject | null, engine: EngineObject): void {
+  private changeScene(scene: EngineNode | null, engine: CocosNamespace): void {
     const keepAttribution =
       !!this.drawAttribution?.enabled && engine === this.cc;
     this.clearBreakpoints();
@@ -235,22 +247,23 @@ export class EngineInspector {
       },
     });
   }
-  private identify(object: EngineObject, kind: "n" | "c"): string {
+  private identify(object: EngineNode, kind: "n" | "c"): string {
     let id = this.ids.get(object);
     if (!id) {
       id = `${kind}${++this.sequence}`;
       this.ids.set(object, id);
     }
-    (kind === "n" ? this.nodes : this.components).set(id, object);
+    if (kind === "n") this.nodes.set(id, object);
+    else this.components.set(id, object);
     return id;
   }
-  private validNode(node: EngineObject): boolean {
+  private validNode(node: EngineNode): boolean {
     if (!node || node.isValid === false || node._destroyed === true)
       return false;
     if (this.cc.director?.getScene?.() !== this.scene) return false;
     if (typeof this.cc.isValid === "function" && !this.cc.isValid(node, true))
       return false;
-    let current: EngineObject | null = node;
+    let current: EngineNode | null | undefined = node;
     for (let i = 0; current && i < 256; i++, current = current.parent)
       if (current === this.scene) return true;
     return false;
@@ -258,7 +271,7 @@ export class EngineInspector {
   private requireNode(
     args: Record<string, unknown>,
     request: RuntimeRequest,
-  ): EngineObject {
+  ): EngineNode {
     if (request.generation !== this.generation)
       fail(
         "STALE_GENERATION",
@@ -272,7 +285,7 @@ export class EngineInspector {
       );
     return node;
   }
-  private nodeComponents(node: EngineObject): EngineObject[] {
+  private nodeComponents(node: EngineNode): EngineComponent[] {
     const list =
       node.components ||
       node._components ||
@@ -314,8 +327,12 @@ export class EngineInspector {
           "editorTargets",
         ]
       : [];
-    if (
+    const uiTransformCtor =
       this.cc.UITransform ||
+      this.cc.js?.getClassByName?.("cc.UITransform") ||
+      "cc.UITransform";
+    if (
+      uiTransformCtor ||
       typeof this.scene?.getBoundingBoxToWorld === "function"
     )
       capabilities.push("uiPicking");
@@ -356,7 +373,7 @@ export class EngineInspector {
         drawCalls: this.drawCalls(),
       };
     const stack: {
-      node: EngineObject;
+      node: EngineNode;
       parentId: string | null;
       depth: number;
     }[] = [{ node: this.scene, parentId: null, depth: 0 }];
@@ -413,7 +430,7 @@ export class EngineInspector {
       truncated: truncated || stack.length > 0,
     };
   }
-  private widgetReason(node: EngineObject, key: string): string | undefined {
+  private widgetReason(node: EngineNode, key: string): string | undefined {
     if (
       ![
         "position",
@@ -458,7 +475,7 @@ export class EngineInspector {
   private groupProperties(
     root: EngineObject,
     prefix: string,
-    node: EngineObject,
+    node: EngineNode,
   ): Property[] {
     const keys =
       prefix === "node"
@@ -490,9 +507,9 @@ export class EngineInspector {
       .filter((p): p is Property => p !== null)
       .slice(0, 160);
   }
-  private nodePath(node: EngineObject): string {
+  private nodePath(node: EngineNode): string {
     const parts: string[] = [];
-    let current: EngineObject | null = node;
+    let current: EngineNode | null | undefined = node;
     for (
       let depth = 0;
       current && depth < 256;
@@ -501,7 +518,7 @@ export class EngineInspector {
       parts.unshift(String(current.name || ""));
     return parts.join("/");
   }
-  private handlerInventory(node: EngineObject): Handler[] {
+  private handlerInventory(node: EngineNode): Handler[] {
     const handlers: Handler[] = [];
     for (const component of this.nodeComponents(node))
       for (const field of EVENT_FIELDS) {
@@ -575,7 +592,7 @@ export class EngineInspector {
           "mouse-leave",
         ];
   }
-  private details(node: EngineObject): NodeDetails {
+  private details(node: EngineNode): NodeDetails {
     const id = this.identify(node, "n");
     const groups: PropertyGroup[] = [
       {
@@ -598,9 +615,9 @@ export class EngineInspector {
       if (
         typeof component.play === "function" &&
         typeof component.stop === "function" &&
-        (component.clips || component.getClips)
+        (component.clips || typeof component.getClips === "function")
       ) {
-        const clips = component.clips || component.getClips();
+        const clips = component.clips || component.getClips?.();
         animations.push({
           id: componentId,
           clips: Array.isArray(clips)
@@ -631,7 +648,7 @@ export class EngineInspector {
       breakpointEvents: this.eventChoices(),
     };
   }
-  private location(node: EngineObject, value: unknown): Location {
+  private location(node: EngineNode, value: unknown): Location {
     const path = safePath(value);
     const prefix = path[0];
     const root = prefix === "node" ? node : this.components.get(prefix);
@@ -661,7 +678,7 @@ export class EngineInspector {
       if (!d || (d.get && i > 1))
         fail("READ_ONLY", "Nested getters cannot be traversed.");
       const next = readField(owner, key);
-      if (!next || typeof next !== "object")
+      if (!isObject(next))
         fail("INVALID_PATH", "The property path does not refer to an object.");
       owner = next;
     }
@@ -670,7 +687,7 @@ export class EngineInspector {
     return { root, owner, key: path.at(-1)!, path, rootKey: path[1] };
   }
   private expandableKeys(value: EngineObject): string[] {
-    const kind = valueKind(value);
+    const kind = valueKind(value, this.cc);
     if (["vec2", "vec3", "vec4", "color", "size"].includes(kind))
       return kind === "color"
         ? ["r", "g", "b", "a"]
@@ -696,10 +713,10 @@ export class EngineInspector {
       )
       .slice(0, 128);
   }
-  private expand(node: EngineObject, path: unknown): Property[] {
+  private expand(node: EngineNode, path: unknown): Property[] {
     const location = this.location(node, path);
     const value = readField(location.owner, location.key);
-    if (!value || typeof value !== "object")
+    if (!isObject(value))
       fail(
         "NOT_EXPANDABLE",
         "The selected property is not an object or array.",
@@ -724,7 +741,7 @@ export class EngineInspector {
       )
       .filter((p): p is Property => p !== null);
   }
-  private set(node: EngineObject, args: Record<string, unknown>): Property {
+  private set(node: EngineNode, args: Record<string, unknown>): Property {
     const loc = this.location(node, args.path);
     const rootRow = this.groupProperties(loc.root, loc.path[0], node).find(
       (p) => p.key === loc.rootKey,
@@ -756,10 +773,12 @@ export class EngineInspector {
     if (
       loc.path.length === 3 &&
       ["vec2", "vec3", "vec4", "color", "size"].includes(
-        valueKind(loc.root[loc.rootKey]),
+        valueKind(loc.root[loc.rootKey], this.cc),
       )
     ) {
       const old = loc.root[loc.rootKey];
+      if (!isObject(old))
+        fail("INVALID_PATH", "Vector or color target is not an object.");
       const copy = {
         ...Object.fromEntries(this.expandableKeys(old).map((k) => [k, old[k]])),
         [key]: value,
@@ -771,25 +790,29 @@ export class EngineInspector {
     if (
       owner === node &&
       key === "position" &&
-      typeof node.setPosition === "function"
+      typeof node.setPosition === "function" &&
+      numericFields(value, ["x", "y", "z"])
     )
       node.setPosition(value);
     else if (
       owner === node &&
       key === "scale" &&
-      typeof node.setScale === "function"
+      typeof node.setScale === "function" &&
+      numericFields(value, ["x", "y", "z"])
     )
       node.setScale(value);
     else if (
       owner === node &&
       key === "eulerAngles" &&
-      typeof node.setRotationFromEuler === "function"
+      typeof node.setRotationFromEuler === "function" &&
+      numericFields(value, ["x", "y", "z"])
     )
       node.setRotationFromEuler(value);
     else if (
       owner === node &&
       key === "color" &&
-      typeof node.setColor === "function"
+      typeof node.setColor === "function" &&
+      numericFields(value, ["r", "g", "b", "a"])
     )
       node.setColor(value);
     else if (
@@ -850,7 +873,7 @@ export class EngineInspector {
     console.log("__PTS_CC_INSPECTOR_TARGET__ =", target);
     return { target: "__PTS_CC_INSPECTOR_TARGET__" };
   }
-  private clearBreakpoints(node?: EngineObject): number {
+  private clearBreakpoints(node?: EngineNode): number {
     let count = 0;
     const remaining: Breakpoint[] = [];
     let failed = false;
@@ -860,7 +883,7 @@ export class EngineInspector {
         continue;
       }
       try {
-        item.node.off(item.event, item.listener);
+        item.node.off?.(item.event, item.listener);
         count++;
       } catch {
         remaining.push(item);
@@ -875,7 +898,7 @@ export class EngineInspector {
       );
     return count;
   }
-  private atlasManager(): EngineObject | null {
+  private atlasManager(): EngineAtlas | null {
     return (
       this.cc.dynamicAtlasManager ||
       this.cc.internal?.dynamicAtlasManager ||
@@ -890,7 +913,7 @@ export class EngineInspector {
       engine.profiler?._showStats
     );
   }
-  private setFps(engine: EngineObject, visible: boolean): void {
+  private setFps(engine: CocosNamespace, visible: boolean): void {
     if (engine.debug?.setDisplayStats) engine.debug.setDisplayStats(visible);
     else if (engine.profiler?.showStats && engine.profiler?.hideStats) {
       if (visible) engine.profiler.showStats();
@@ -931,7 +954,7 @@ export class EngineInspector {
         : null,
     };
   }
-  private editorTarget(value: EngineObject): EditorTarget {
+  private editorTarget(value: EngineAsset): EditorTarget {
     const uuid = value._uuid || value.uuid || value.asset?._uuid;
     const fileId = value.fileId || value._prefab?.fileId;
     if (
@@ -1200,7 +1223,7 @@ export class EngineInspector {
       case "openAsset": {
         const loc = this.location(node, args.path);
         const value = readField(loc.owner, loc.key);
-        if (!value || typeof value !== "object")
+        if (!isObject(value))
           fail(
             "ASSET_UNAVAILABLE",
             "The selected property does not reference a live asset.",

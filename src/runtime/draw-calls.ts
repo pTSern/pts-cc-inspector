@@ -1,7 +1,20 @@
-import { fail, type EngineObject } from "./properties";
+import {
+  isObject,
+  type CocosNamespace,
+  type EngineAssembler,
+  type EngineAssemblerRenderer,
+  type EngineBuffer,
+  type EngineComponent,
+  type EngineDevice,
+  type EngineInputAssembler,
+  type EngineMethod,
+  type EngineNode,
+  type EngineObject,
+} from "./contracts";
+import { fail } from "./properties";
 
 interface Range {
-  node: EngineObject;
+  node: EngineNode;
   first: number;
   count: number;
 }
@@ -9,9 +22,8 @@ interface Patch {
   owner: EngineObject;
   key: string;
   original: PropertyDescriptor | undefined;
-  wrapper: Function;
+  wrapper: EngineMethod;
 }
-type EngineMethod = (this: EngineObject, ...args: unknown[]) => unknown;
 const MAX_RANGES = 40000;
 
 /** Opt-in rendering instrumentation. Object identity/ranges stay in inspector-owned maps. */
@@ -26,7 +38,7 @@ export class DrawCallAttribution {
   private active = false;
   private beforeEvent: string | null = null;
   private afterEvent: string | null = null;
-  constructor(private readonly cc: EngineObject) {}
+  constructor(private readonly cc: CocosNamespace) {}
   get supported(): boolean {
     const cc = this.cc;
     const frameEvents =
@@ -51,7 +63,7 @@ export class DrawCallAttribution {
   get enabled(): boolean {
     return this.active;
   }
-  value(node: EngineObject): number | undefined {
+  value(node: EngineNode): number | undefined {
     return this.active ? this.values.get(node) : undefined;
   }
   private patch(
@@ -63,8 +75,9 @@ export class DrawCallAttribution {
       args: unknown[],
     ) => unknown,
   ): void {
-    const original = owner[key];
-    if (typeof original !== "function") return;
+    const candidate = owner[key];
+    if (typeof candidate !== "function") return;
+    const original = candidate as EngineMethod;
     const originalDescriptor = Object.getOwnPropertyDescriptor(owner, key);
     if (
       originalDescriptor &&
@@ -98,11 +111,11 @@ export class DrawCallAttribution {
     this.ranges.clear();
     this.rangeCount = 0;
   };
-  private bufferId(buffer: EngineObject | undefined): unknown {
+  private bufferId(buffer: EngineBuffer | undefined): unknown {
     return buffer?.objectID ?? buffer;
   }
   private add(
-    node: EngineObject | undefined,
+    node: EngineNode | undefined,
     buffer: unknown,
     first: unknown,
     count: unknown,
@@ -143,8 +156,8 @@ export class DrawCallAttribution {
         this.values.set(range.node, index);
   }
   private addIA(
-    node: EngineObject | undefined,
-    ia: EngineObject | undefined,
+    node: EngineNode | undefined,
+    ia: EngineInputAssembler | undefined,
   ): void {
     if (!ia) return;
     const info = ia.drawInfo || ia._drawInfo;
@@ -155,7 +168,7 @@ export class DrawCallAttribution {
       info?.indexCount ?? ia._count,
     );
   }
-  private captureModels(component: EngineObject): void {
+  private captureModels(component: EngineComponent): void {
     const model = component.model || component._model;
     const submodels = model?.subModels || model?._subModels;
     if (Array.isArray(submodels))
@@ -170,9 +183,9 @@ export class DrawCallAttribution {
         Math.max(0, particle.indexCount - 6),
       );
   }
-  private watchAssembler(assembler: EngineObject | undefined): void {
+  private watchAssembler(assembler: EngineAssembler | undefined): void {
     if (!assembler) return;
-    const proto = Object.getPrototypeOf(assembler) as EngineObject | null;
+    const proto = Object.getPrototypeOf(assembler) as EngineAssembler | null;
     if (
       !proto ||
       this.hooked.has(proto) ||
@@ -181,11 +194,16 @@ export class DrawCallAttribution {
       return;
     this.hooked.add(proto);
     this.patch(proto, "fillBuffers", (original, self, args) => {
-      const component = args[0] as EngineObject,
-        renderer = args[1] as EngineObject;
+      const assemblerSelf = self as EngineAssembler;
+      const component = isObject(args[0])
+        ? (args[0] as EngineComponent)
+        : undefined;
+      const renderer = isObject(args[1])
+        ? (args[1] as EngineAssemblerRenderer)
+        : undefined;
       let buffer =
-        typeof self.getBuffer === "function"
-          ? self.getBuffer(renderer)
+        typeof assemblerSelf.getBuffer === "function"
+          ? assemblerSelf.getBuffer(renderer)
           : undefined;
       if (
         !buffer &&
@@ -203,16 +221,16 @@ export class DrawCallAttribution {
       }
       const start = buffer?.indiceOffset;
       const result = original.apply(self, args);
-      if (buffer)
+      if (buffer && typeof start === "number")
         this.add(
           component?.node,
           buffer._ib,
           start,
           buffer.indiceOffset - start,
         );
-      if (self._ia) this.addIA(component?.node, self._ia);
-      if (typeof self.getBuffers === "function") {
-        const buffers = self.getBuffers();
+      if (assemblerSelf._ia) this.addIA(component?.node, assemblerSelf._ia);
+      if (typeof assemblerSelf.getBuffers === "function") {
+        const buffers = assemblerSelf.getBuffers();
         if (Array.isArray(buffers))
           for (const entry of buffers.slice(0, 256))
             this.addIA(component?.node, entry.ia);
@@ -221,7 +239,7 @@ export class DrawCallAttribution {
     });
   }
   private discoverAssemblers(): void {
-    const scene = this.cc.director.getScene();
+    const scene = this.cc.director?.getScene();
     if (!scene) return;
     const stack = [scene];
     const seen = new Set<object>();
@@ -252,36 +270,63 @@ export class DrawCallAttribution {
     this.active = true;
     try {
       if (String(this.cc.ENGINE_VERSION || this.cc.VERSION).startsWith("2")) {
-        this.patch(this.cc.renderer.device, "draw", (original, self, args) => {
-          const index = Number(self._stats?.drawcalls ?? this.drawIndex) + 1;
+        const device = this.cc.renderer?.device;
+        const assembler = this.cc.Assembler;
+        if (!device || !assembler)
+          fail(
+            "DRAW_ATTRIBUTION_UNAVAILABLE",
+            "Renderer device or Assembler unavailable.",
+          );
+        this.patch(device, "draw", (original, self, args) => {
+          const dev = self as EngineDevice;
+          const index = Number(dev._stats?.drawcalls ?? this.drawIndex) + 1;
           this.drawIndex = index;
-          this.draw(self._next?.indexBuffer, args[0], args[1], index);
+          this.draw(dev._next?.indexBuffer, args[0], args[1], index);
           return original.apply(self, args);
         });
-        this.patch(this.cc.Assembler, "init", (original, self, args) => {
+        this.patch(assembler, "init", (original, self, args) => {
           const result = original.apply(self, args);
-          this.watchAssembler((args[0] as EngineObject)?._assembler);
+          const comp = isObject(args[0])
+            ? (args[0] as EngineComponent)
+            : undefined;
+          this.watchAssembler(comp?._assembler);
           return result;
         });
         this.discoverAssemblers();
       } else {
         const command =
-          this.cc.director.root.device.commandBuffer ||
-          this.cc.director.root.device._cmdBuff;
+          this.cc.director?.root?.device?.commandBuffer ||
+          this.cc.director?.root?.device?._cmdBuff;
+        const uiProto = this.cc.internal?.UIRenderer?.prototype;
+        if (!command || !uiProto)
+          fail(
+            "DRAW_ATTRIBUTION_UNAVAILABLE",
+            "CommandBuffer or UIRenderer unavailable.",
+          );
         const commandProto = Object.getPrototypeOf(command) as EngineObject;
         this.patch(
           commandProto,
           "bindInputAssembler",
           (original, self, args) => {
-            this.boundAssemblers.set(self, args[0] as EngineObject);
+            if (isObject(args[0])) this.boundAssemblers.set(self, args[0]);
             return original.apply(self, args);
           },
         );
         this.patch(commandProto, "draw", (original, self, args) => {
-          const source = args[0] as EngineObject;
-          const ia = source?.drawInfo ? source : this.boundAssemblers.get(self);
-          const info = source?.drawInfo || source || ia?.drawInfo;
-          const index = Number(self.numDrawCalls ?? this.drawIndex) + 1;
+          const source = isObject(args[0])
+            ? (args[0] as EngineInputAssembler)
+            : undefined;
+          const ia = (
+            source?.drawInfo ? source : this.boundAssemblers.get(self)
+          ) as EngineInputAssembler | undefined;
+          const info =
+            source?.drawInfo ||
+            (source as
+              | { firstIndex?: number; indexCount?: number }
+              | undefined) ||
+            ia?.drawInfo;
+          const index =
+            Number((self as EngineDevice).numDrawCalls ?? this.drawIndex) + 1;
           this.drawIndex = index;
           this.draw(
             this.bufferId(ia?.indexBuffer || ia?._indexBuffer),
@@ -291,46 +336,51 @@ export class DrawCallAttribution {
           );
           return original.apply(self, args);
         });
-        this.patch(
-          this.cc.internal.UIRenderer.prototype,
-          "fillBuffers",
-          (original, self, args) => {
-            const before = self.renderData?.chunk?.meshBuffer;
-            const start = before?.indexOffset;
-            const result = original.apply(self, args);
-            const after = self.renderData?.chunk?.meshBuffer;
-            if (before && before === after)
-              this.add(
-                self.node,
-                this.bufferId(after._iaInfo?.indexBuffer),
-                start,
-                after.indexOffset - start,
-              );
-            this.captureModels(self);
-            return result;
-          },
-        );
-        if (this.cc.RenderFlow?.prototype?.render)
-          this.patch(
-            this.cc.RenderFlow.prototype,
-            "render",
-            (original, self, args) => {
-              if (Array.isArray(self._stages))
-                for (const stage of self._stages.slice(0, 64)) {
-                  const profiler = stage._pipeline?.profiler;
-                  const models = profiler?._subModels;
-                  if (Array.isArray(models))
-                    for (const model of models.slice(0, 64))
-                      this.addIA(profiler.node, model._inputAssembler);
-                }
-              return original.apply(self, args);
-            },
-          );
+        this.patch(uiProto, "fillBuffers", (original, self, args) => {
+          const comp = self as EngineComponent;
+          const before = comp.renderData?.chunk?.meshBuffer;
+          const start = before?.indexOffset;
+          const result = original.apply(self, args);
+          const after = comp.renderData?.chunk?.meshBuffer;
+          if (before && before === after && typeof start === "number")
+            this.add(
+              comp.node,
+              this.bufferId(after._iaInfo?.indexBuffer),
+              start,
+              after.indexOffset - start,
+            );
+          this.captureModels(comp);
+          return result;
+        });
+        const flowProto = this.cc.RenderFlow?.prototype;
+        if (flowProto && typeof flowProto.render === "function")
+          this.patch(flowProto, "render", (original, self, args) => {
+            if (Array.isArray(self._stages))
+              for (const stage of self._stages.slice(0, 64)) {
+                if (
+                  !isObject(stage) ||
+                  !isObject(stage._pipeline) ||
+                  !isObject(stage._pipeline.profiler)
+                )
+                  continue;
+                const profiler = stage._pipeline.profiler as {
+                  node?: EngineNode;
+                  _subModels?: { _inputAssembler?: EngineInputAssembler }[];
+                };
+                const models = profiler._subModels;
+                if (Array.isArray(models))
+                  for (const model of models.slice(0, 64))
+                    this.addIA(profiler.node, model._inputAssembler);
+              }
+            return original.apply(self, args);
+          });
       }
-      this.beforeEvent = this.cc.Director.EVENT_BEFORE_DRAW;
-      this.afterEvent = this.cc.Director.EVENT_AFTER_DRAW;
-      this.cc.director.on(this.beforeEvent, this.beginFrame);
-      this.cc.director.on(this.afterEvent, this.endFrame);
+      this.beforeEvent = this.cc.Director?.EVENT_BEFORE_DRAW ?? null;
+      this.afterEvent = this.cc.Director?.EVENT_AFTER_DRAW ?? null;
+      if (this.beforeEvent)
+        this.cc.director?.on?.(this.beforeEvent, this.beginFrame);
+      if (this.afterEvent)
+        this.cc.director?.on?.(this.afterEvent, this.endFrame);
     } catch (error) {
       this.dispose();
       throw error;
@@ -341,13 +391,13 @@ export class DrawCallAttribution {
     let failed = false;
     if (this.beforeEvent)
       try {
-        this.cc.director.off(this.beforeEvent, this.beginFrame);
+        this.cc.director?.off?.(this.beforeEvent, this.beginFrame);
       } catch {
         failed = true;
       }
     if (this.afterEvent)
       try {
-        this.cc.director.off(this.afterEvent, this.endFrame);
+        this.cc.director?.off?.(this.afterEvent, this.endFrame);
       } catch {
         failed = true;
       }

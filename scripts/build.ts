@@ -1,9 +1,26 @@
 import { build } from "esbuild";
-import { mkdir, readFile, writeFile, copyFile, rm } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  writeFile,
+  copyFile,
+  rm,
+  readdir,
+} from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
+import { createHash } from "node:crypto";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const dist = resolve(root, "dist");
+const hash = createHash("sha256");
+for (const folder of ["src/runtime", "src/shared"]) {
+  const files = (await readdir(resolve(root, folder)))
+    .filter((file) => file.endsWith(".ts"))
+    .sort();
+  for (const file of files)
+    hash.update(await readFile(resolve(root, folder, file)));
+}
+const buildId = hash.digest("hex").slice(0, 16);
 await rm(dist, { recursive: true, force: true });
 await mkdir(dist, { recursive: true });
 const entries = {
@@ -24,6 +41,7 @@ await build({
   format: "iife",
   platform: "browser",
   target: ["chrome111"],
+  define: { __PTS_BUILD_ID__: JSON.stringify(buildId) },
   minify: true,
   sourcemap: "external",
   sourcesContent: true,

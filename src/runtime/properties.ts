@@ -1,7 +1,12 @@
 import type { Json, Property, PropertyKind } from "../shared/protocol";
-
-/** Dynamic engine objects are isolated to this runtime boundary. */
-export type EngineObject = Record<string, any>;
+import {
+  isObject,
+  numericFields,
+  type CocosNamespace,
+  type EngineObject,
+  type EngineValue,
+} from "./contracts";
+export type { EngineObject } from "./contracts";
 export class InspectorError extends Error {
   constructor(
     public readonly code: string,
@@ -47,7 +52,7 @@ export function descriptor(
   }
   return undefined;
 }
-export function readField(object: EngineObject, key: string): any {
+export function readField(object: EngineObject, key: string): unknown {
   if (
     key === "__proto__" ||
     Object.prototype.hasOwnProperty.call(FORBIDDEN, key)
@@ -55,7 +60,7 @@ export function readField(object: EngineObject, key: string): any {
     fail("INVALID_PATH", "Protected property cannot be accessed.");
   return object[key];
 }
-export function className(value: EngineObject, cc?: EngineObject): string {
+export function className(value: object, cc?: CocosNamespace): string {
   try {
     return String(
       cc?.js?.getClassName?.(value) || value.constructor?.name || "Object",
@@ -64,10 +69,9 @@ export function className(value: EngineObject, cc?: EngineObject): string {
     return "Object";
   }
 }
-export function imageLike(value: any): boolean {
+export function imageLike(value: unknown): value is EngineObject {
   return (
-    !!value &&
-    typeof value === "object" &&
+    isObject(value) &&
     (typeof value.getTexture === "function" ||
       typeof value.getGFXTexture === "function" ||
       typeof value.getHtmlElementObj === "function" ||
@@ -82,30 +86,49 @@ function ownNumber(value: EngineObject, key: string): boolean {
     return false;
   }
 }
-export function valueKind(value: any): PropertyKind {
+const VALUE_TYPES: readonly [
+  keyof Pick<
+    CocosNamespace,
+    "Color" | "Size" | "Quat" | "Vec4" | "Vec3" | "Vec2"
+  >,
+  PropertyKind,
+  readonly string[],
+][] = [
+  ["Color", "color", ["r", "g", "b", "a"]],
+  ["Size", "size", ["width", "height"]],
+  ["Quat", "vec4", ["x", "y", "z", "w"]],
+  ["Vec4", "vec4", ["x", "y", "z", "w"]],
+  ["Vec3", "vec3", ["x", "y", "z"]],
+  ["Vec2", "vec2", ["x", "y"]],
+];
+export function valueKind(value: unknown, cc?: CocosNamespace): PropertyKind {
   if (value === null || value === undefined) return "null";
   if (Array.isArray(value)) return "array";
   if (typeof value === "number") return "number";
   if (typeof value === "boolean") return "boolean";
   if (typeof value === "string") return "string";
   if (imageLike(value)) return "image";
-  if (typeof value === "object") {
-    if (["r", "g", "b", "a"].every((k) => ownNumber(value, k))) return "color";
-    if (ownNumber(value, "x") && ownNumber(value, "y"))
-      return ownNumber(value, "z")
-        ? ownNumber(value, "w")
-          ? "vec4"
-          : "vec3"
-        : "vec2";
-    if (ownNumber(value, "width") && ownNumber(value, "height")) return "size";
+  if (!isObject(value)) return "object";
+  // Nodes, components and custom objects can also expose x/y/z or width/height.
+  // Only real engine value classes qualify for whole-value typed replacement.
+  const name = className(value, cc);
+  for (const [type, kind, fields] of VALUE_TYPES) {
+    const ctor = cc?.[type];
+    const matches =
+      typeof ctor === "function"
+        ? value instanceof ctor
+        : name === type || name === `cc.${type}`;
+    if (matches && fields.every((key) => ownNumber(value, key))) return kind;
   }
   return "object";
 }
-export function preview(value: any, kind = valueKind(value)): Json {
+export function preview(value: unknown, kind = valueKind(value)): Json {
   if (kind === "null") return null;
-  if (kind === "string") return value.slice(0, 4096);
-  if (kind === "boolean") return value;
-  if (kind === "number") return Number.isFinite(value) ? value : String(value);
+  if (kind === "string" && typeof value === "string")
+    return value.slice(0, 4096);
+  if (kind === "boolean" && typeof value === "boolean") return value;
+  if (kind === "number" && typeof value === "number")
+    return Number.isFinite(value) ? value : String(value);
   const fields =
     kind === "color"
       ? ["r", "g", "b", "a"]
@@ -118,10 +141,12 @@ export function preview(value: any, kind = valueKind(value)): Json {
             : kind === "vec4"
               ? ["x", "y", "z", "w"]
               : null;
-  if (fields)
+  if (fields && isObject(value))
     return Object.fromEntries(fields.map((k) => [k, Number(value[k])]));
-  if (kind === "array") return `Array(${value.length})`;
-  return className(value);
+  if (kind === "array" && Array.isArray(value)) return `Array(${value.length})`;
+  return value !== null && typeof value === "object"
+    ? className(value)
+    : "Object";
 }
 export function reflectedKeys(object: EngineObject): string[] {
   const ctor = object.constructor;
@@ -172,19 +197,21 @@ export function reflectedKeys(object: EngineObject): string[] {
 export function reflectedOptions(
   object: EngineObject,
   key: string,
-  cc: EngineObject,
+  cc: CocosNamespace,
 ): { label: string; value: Json }[] | undefined {
   try {
     const attrs = cc.Class?.Attr?.getClassAttrs?.(object.constructor);
+    if (!isObject(attrs)) return undefined;
     const list =
-      attrs?.[`${key}$_$enumList`] ||
-      attrs?.[`_${key}$_$enumList`] ||
-      attrs?.[`_N$${key}$_$enumList`];
+      attrs[`${key}$_$enumList`] ||
+      attrs[`_${key}$_$enumList`] ||
+      attrs[`_N$${key}$_$enumList`];
     if (Array.isArray(list))
       return list
         .slice(0, 256)
         .filter(
-          (e) =>
+          (e: unknown): e is { name: string; value: number } =>
+            isObject(e) &&
             typeof e.name === "string" &&
             typeof e.value === "number" &&
             Number.isFinite(e.value),
@@ -199,7 +226,7 @@ export function property(
   object: EngineObject,
   key: string,
   path: string[],
-  cc: EngineObject,
+  cc: CocosNamespace,
   allowGetter = false,
   locked?: string,
 ): Property | null {
@@ -217,7 +244,7 @@ export function property(
   try {
     const value = readField(object, key);
     if (typeof value === "function") return null;
-    const kind = valueKind(value);
+    const kind = valueKind(value, cc);
     const options = reflectedOptions(object, key, cc);
     const row: Property = {
       ...base,
@@ -233,7 +260,7 @@ export function property(
     };
     if (locked) row.reason = locked;
     if (options) row.options = options;
-    if (value && typeof value === "object") {
+    if (isObject(value)) {
       const uuid = value._uuid || value.uuid;
       if (typeof uuid === "string" && uuid.length <= 512) row.assetUuid = uuid;
     }
@@ -275,12 +302,12 @@ export function validateValue(value: unknown, depth = 0): void {
     fail("INVALID_VALUE", "Only JSON property values are accepted.");
 }
 export function typedValue(
-  previous: any,
+  previous: unknown,
   value: unknown,
-  cc: EngineObject,
-): any {
+  cc: CocosNamespace,
+): unknown {
   validateValue(value);
-  const kind = valueKind(previous);
+  const kind = valueKind(previous, cc);
   if (kind === "number" || kind === "boolean" || kind === "string") {
     if (typeof previous !== typeof value)
       fail("TYPE_MISMATCH", "Property value has the wrong type.");
@@ -318,9 +345,13 @@ export function typedValue(
     names.some((k) => (input[k] as number) < 0 || (input[k] as number) > 255)
   )
     fail("INVALID_VALUE", "Color channels must be between 0 and 255.");
+  if (!isObject(previous))
+    fail("TYPE_MISMATCH", "A typed property requires an engine value.");
+  // valueKind verified the engine class and its numeric members above.
+  const typed = previous as EngineValue;
   const result =
-    typeof previous.clone === "function"
-      ? previous.clone()
+    typeof typed.clone === "function"
+      ? typed.clone()
       : kind === "color" && cc.Color
         ? new cc.Color()
         : kind === "size" && cc.Size
@@ -337,6 +368,7 @@ export function typedValue(
       "UNSUPPORTED_WRITE",
       "This engine does not expose a supported typed-value constructor.",
     );
-  for (const key of names) result[key] = input[key];
+  const mutable = result as EngineObject;
+  for (const key of names) mutable[key] = input[key];
   return result;
 }

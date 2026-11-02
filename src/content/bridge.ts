@@ -70,7 +70,7 @@ if (!world.__ptsInspectorBridge?.alive) {
       right: "12px",
       width: "min(960px,95vw)",
       height: "min(650px,92vh)",
-      minWidth: "360px",
+      minWidth: "min(360px,95vw)",
       minHeight: "260px",
       maxWidth: "98vw",
       maxHeight: "96vh",

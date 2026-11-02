@@ -427,7 +427,6 @@ export class PropertyView {
       const replace = this.button("replaceImage", async () => {
         file.click();
       });
-      replace.disabled = property.readOnly;
       control.append(replace, file);
       file.addEventListener(
         "change",

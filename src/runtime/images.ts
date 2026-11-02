@@ -1,5 +1,5 @@
-import { fail, imageLike, type EngineObject } from "./properties";
-
+import { isObject, type CocosNamespace, type EngineTexture } from "./contracts";
+import { fail, imageLike } from "./properties";
 const MAX_SIDE = 8192;
 const MAX_PIXELS = 16 * 1024 * 1024;
 export interface ImagePreview {
@@ -9,12 +9,20 @@ export interface ImagePreview {
   assetUuid?: string;
 }
 interface ImageTarget {
-  texture: EngineObject;
-  frame: EngineObject | null;
+  texture: EngineTexture;
+  frame: EngineTexture | null;
   rect: { x: number; y: number; width: number; height: number };
   rotated: boolean;
 }
-function target(value: EngineObject): ImageTarget {
+function isCanvasImageSource(value: unknown): value is CanvasImageSource {
+  return (
+    value instanceof HTMLImageElement ||
+    value instanceof HTMLCanvasElement ||
+    value instanceof ImageBitmap ||
+    (typeof OffscreenCanvas !== "undefined" && value instanceof OffscreenCanvas)
+  );
+}
+function target(value: EngineTexture): ImageTarget {
   if (!imageLike(value))
     fail("NOT_IMAGE", "The selected property is not an image or texture.");
   const frame =
@@ -32,8 +40,8 @@ function target(value: EngineObject): ImageTarget {
     : {
         x: 0,
         y: 0,
-        width: texture.width || texture._width,
-        height: texture.height || texture._height,
+        width: Number(texture.width ?? texture._width ?? 0),
+        height: Number(texture.height ?? texture._height ?? 0),
       };
   if (
     !Object.values(rect).every(Number.isFinite) ||
@@ -48,17 +56,18 @@ function target(value: EngineObject): ImageTarget {
     rotated: !!(frame?.isRotated?.() || frame?.rotated || frame?._rotated),
   };
 }
-function nativeImage(texture: EngineObject): CanvasImageSource | null {
-  return (
+function nativeImage(texture: EngineTexture): CanvasImageSource | null {
+  const rawImage = isObject(texture._image) ? texture._image.data : undefined;
+  const candidate =
     texture.getHtmlElementObj?.() ||
     texture.image?.data ||
     texture.image?._data ||
-    texture._image?.data ||
+    rawImage ||
     texture._image ||
-    null
-  );
+    null;
+  return isCanvasImageSource(candidate) ? candidate : null;
 }
-export function imagePreview(value: EngineObject): ImagePreview {
+export function imagePreview(value: EngineTexture): ImagePreview {
   const { texture, frame, rect, rotated } = target(value);
   const source = nativeImage(texture);
   const width = rect.width,
@@ -179,9 +188,9 @@ async function decode(dataUrl: unknown): Promise<HTMLImageElement> {
   return image;
 }
 export async function replaceImage(
-  value: EngineObject,
+  value: EngineTexture,
   dataUrl: unknown,
-  cc: EngineObject,
+  cc: CocosNamespace,
   assertCurrent: () => void,
 ): Promise<{
   width: number;
@@ -195,8 +204,8 @@ export async function replaceImage(
       "IMAGE_WRITE_UNAVAILABLE",
       "Texture replacement requires a nonnegative integer-pixel atlas region.",
     );
-  const textureWidth = texture.width || texture._width,
-    textureHeight = texture.height || texture._height;
+  const textureWidth = Number(texture.width ?? texture._width ?? 0),
+    textureHeight = Number(texture.height ?? texture._height ?? 0);
   if (
     rect.x + (rotated ? rect.height : rect.width) > textureWidth ||
     rect.y + (rotated ? rect.width : rect.height) > textureHeight
@@ -257,7 +266,7 @@ export async function replaceImage(
     : "";
   if (
     /PVRTC|ETC|ASTC|S3TC|DXT|BC[1-7]/i.test(formatName) ||
-    gfxTexture?.levelCount > 1 ||
+    (gfxTexture?.levelCount ?? 0) > 1 ||
     texture._genMipmaps === true
   )
     fail(

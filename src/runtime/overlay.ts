@@ -1,5 +1,5 @@
-import { fail, type EngineObject } from "./properties";
-
+import type { CocosNamespace, EngineNode, EngineVec2 } from "./contracts";
+import { fail } from "./properties";
 export interface Bounds {
   left: number;
   top: number;
@@ -9,19 +9,18 @@ export interface Bounds {
 export class SelectionOverlay {
   private element: HTMLDivElement | null = null;
   private frame = 0;
-  private selected: EngineObject | null = null;
-  private hovered: EngineObject | null = null;
+  private selected: EngineNode | null = null;
+  private hovered: EngineNode | null = null;
   private picking = false;
-  private candidates: EngineObject[] = [];
+  private candidates: EngineNode[] = [];
   private lastMove = 0;
   private oldCursor = "";
   constructor(
-    private readonly engine: () => EngineObject,
-    private readonly valid: (node: EngineObject) => boolean,
-    private readonly onPick: (node: EngineObject | null) => void,
+    private readonly engine: () => CocosNamespace,
+    private readonly valid: (node: EngineNode) => boolean,
+    private readonly onPick: (node: EngineNode | null) => void,
   ) {}
-  bounds(node: EngineObject): Bounds | null {
-    if (!this.valid(node) || node.activeInHierarchy === false) return null;
+  bounds(node: EngineNode): Bounds | null {
     const cc = this.engine();
     const canvas = (cc.game?.canvas ||
       document.querySelector("canvas")) as HTMLCanvasElement | null;
@@ -29,24 +28,31 @@ export class SelectionOverlay {
     const rect = canvas.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return null;
     try {
-      const transform = cc.UITransform
-        ? node.getComponent?.(cc.UITransform)
-        : null;
+      const uiTransformCtor =
+        cc.UITransform ||
+        cc.js?.getClassByName?.("cc.UITransform") ||
+        "cc.UITransform";
+      const transform =
+        node._uiProps?.uiTransformComp ||
+        (typeof node.getComponent === "function"
+          ? node.getComponent(uiTransformCtor)
+          : null);
       const size =
         transform?.contentSize ||
         (typeof node.width === "number"
-          ? { width: node.width, height: node.height }
+          ? { width: node.width, height: node.height ?? 0 }
           : null);
       const anchor = transform?.anchorPoint || {
         x: node.anchorX ?? 0.5,
         y: node.anchorY ?? 0.5,
       };
       const converter = transform || node;
-      let corners: EngineObject[];
+      let corners: EngineVec2[];
+      const Vec3 = cc.Vec3;
       if (
         size &&
         typeof converter.convertToWorldSpaceAR === "function" &&
-        cc.Vec3
+        Vec3
       ) {
         const left = -anchor.x * size.width,
           bottom = -anchor.y * size.height;
@@ -55,18 +61,16 @@ export class SelectionOverlay {
           [left + size.width, bottom],
           [left + size.width, bottom + size.height],
           [left, bottom + size.height],
-        ].map(([x, y]) =>
-          converter.convertToWorldSpaceAR(new cc.Vec3(x, y, 0)),
-        );
+        ].map(([x, y]) => converter.convertToWorldSpaceAR!(new Vec3(x, y, 0)));
       } else {
         const box = node.getBoundingBoxToWorld?.();
-        if (!box || !cc.Vec3) return null;
+        if (!box || !Vec3) return null;
         corners = [
           [box.x, box.y],
           [box.x + box.width, box.y],
           [box.x + box.width, box.y + box.height],
           [box.x, box.y + box.height],
-        ].map(([x, y]) => new cc.Vec3(x, y, 0));
+        ].map(([x, y]) => new Vec3(x, y, 0));
       }
       const componentCamera = cc.Camera?.findCamera?.(node);
       const renderCamera =
@@ -86,19 +90,19 @@ export class SelectionOverlay {
           ? { x: 0, y: 0 }
           : cc.view?.getVisibleOrigin?.() || { x: 0, y: 0 };
         corners = corners.map((point) => {
-          const projected = componentCamera.getWorldToScreenPoint(point);
+          const projected = componentCamera.getWorldToScreenPoint!(point);
           return { x: projected.x - origin.x, y: projected.y - origin.y };
         });
         surfaceWidth = visible.width;
         surfaceHeight = visible.height;
       } else if (componentCamera?.worldToScreen) {
-        corners = corners.map((point) => componentCamera.worldToScreen(point));
+        corners = corners.map((point) => componentCamera.worldToScreen!(point));
         surfaceWidth = canvas.width;
         surfaceHeight = canvas.height;
-      } else if (renderCamera?.worldToScreen) {
+      } else if (renderCamera?.worldToScreen && Vec3) {
         corners = corners.map((point) => {
-          const output = new cc.Vec3();
-          renderCamera.worldToScreen(output, point);
+          const output = new Vec3();
+          renderCamera.worldToScreen!(output, point);
           return output;
         });
         surfaceWidth = canvas.width;
@@ -136,7 +140,7 @@ export class SelectionOverlay {
       return null;
     }
   }
-  highlight(node: EngineObject | null, hover = false): void {
+  highlight(node: EngineNode | null, hover = false): void {
     if (hover) this.hovered = node;
     else this.selected = node;
     if (this.hovered || this.selected) this.schedule();
@@ -188,7 +192,7 @@ export class SelectionOverlay {
     this.element?.remove();
     this.element = null;
   }
-  pick(nodes: EngineObject[]): void {
+  pick(nodes: EngineNode[]): void {
     if (!document.querySelector("canvas"))
       fail("PICK_UNAVAILABLE", "No game canvas is available for picking.");
     this.cancelPick();
@@ -202,7 +206,7 @@ export class SelectionOverlay {
     window.addEventListener("keydown", this.key, true);
     window.addEventListener("contextmenu", this.contextMenu, true);
   }
-  private hit(x: number, y: number): EngineObject | null {
+  private hit(x: number, y: number): EngineNode | null {
     for (let i = this.candidates.length - 1; i >= 0; i--) {
       const node = this.candidates[i];
       const b = this.bounds(node);
