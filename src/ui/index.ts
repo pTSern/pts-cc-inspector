@@ -10,11 +10,16 @@ import type {
   RuntimeEvent,
   Settings,
   TreeSnapshot,
+  AssetDetails,
+  AssetNode,
+  AssetTreeSnapshot,
 } from "../shared/protocol";
 import { errorKeys, localeNames, localize } from "../locales";
 import type { MessageKey } from "../locales";
 import { HierarchyView } from "./tree";
 import { PropertyView } from "./properties";
+import { AssetTreeView } from "./asset-tree";
+import { renderAssetInspector } from "./asset-inspector";
 
 let instanceCounter = 0;
 export function mountInspector(
@@ -73,6 +78,17 @@ class InspectorUI {
   private stepButton!: HTMLButtonElement;
   private showDrawCalls = false;
   private showDrawCallsControl!: HTMLLabelElement;
+  private activeHierarchyTab: "scene" | "assets" = "scene";
+  private assetTree!: AssetTreeView;
+  private assetSnapshot: AssetTreeSnapshot | null = null;
+  private selectedAssetNode: AssetNode | null = null;
+  private assetDetails: AssetDetails | null = null;
+  private assetSearch!: HTMLInputElement;
+  private assetCount!: HTMLElement;
+  private sceneTabBtn!: HTMLButtonElement;
+  private assetsTabBtn!: HTMLButtonElement;
+  private sceneContainer!: HTMLElement;
+  private assetsContainer!: HTMLElement;
   private currentDetailsId: string | null = null;
   private menuAbort: AbortController | null = null;
   private dialogAbort: AbortController | null = null;
@@ -446,7 +462,36 @@ class InspectorUI {
       },
       this.scope,
     );
-    hierarchy.append(
+    const tabHeader = document.createElement("div");
+    tabHeader.className = "ci-hierarchy-tabs";
+
+    this.sceneTabBtn = document.createElement("button");
+    this.sceneTabBtn.type = "button";
+    this.sceneTabBtn.className = `ci-tab-btn ${this.activeHierarchyTab === "scene" ? "is-active" : ""}`;
+    this.sceneTabBtn.textContent = this.t("sceneTree");
+    this.sceneTabBtn.addEventListener(
+      "click",
+      () => this.switchHierarchyTab("scene"),
+      { signal: this.shellAbort.signal },
+    );
+
+    this.assetsTabBtn = document.createElement("button");
+    this.assetsTabBtn.type = "button";
+    this.assetsTabBtn.className = `ci-tab-btn ${this.activeHierarchyTab === "assets" ? "is-active" : ""}`;
+    this.assetsTabBtn.textContent = this.t("assetsTree");
+    this.assetsTabBtn.addEventListener(
+      "click",
+      () => this.switchHierarchyTab("assets"),
+      { signal: this.shellAbort.signal },
+    );
+
+    tabHeader.append(this.sceneTabBtn, this.assetsTabBtn);
+
+    this.sceneContainer = document.createElement("div");
+    this.sceneContainer.className = "ci-tree-container ci-scene-container";
+    this.sceneContainer.hidden = this.activeHierarchyTab !== "scene";
+
+    this.sceneContainer.append(
       treeHeader,
       filters,
       treeControls,
@@ -455,6 +500,57 @@ class InspectorUI {
       this.bucketControls,
       this.tree.element,
     );
+
+    this.assetsContainer = document.createElement("div");
+    this.assetsContainer.className = "ci-tree-container ci-assets-container";
+    this.assetsContainer.hidden = this.activeHierarchyTab !== "assets";
+
+    const assetHeader = document.createElement("div");
+    assetHeader.className = "ci-section-header";
+    const assetTitle = document.createElement("h2");
+    assetTitle.textContent = this.t("assetsTree");
+    this.assetCount = document.createElement("span");
+    this.assetCount.className = "ci-badge";
+    assetHeader.append(
+      assetTitle,
+      this.assetCount,
+      this.button("refreshAssets", () => this.refreshAssetTree(true), true),
+    );
+
+    const assetFilters = document.createElement("div");
+    assetFilters.className = "ci-filters";
+    this.assetSearch = document.createElement("input");
+    this.assetSearch.type = "search";
+    this.assetSearch.placeholder = this.t("searchAssets");
+    this.assetSearch.setAttribute("aria-label", this.t("searchAssets"));
+    this.assetSearch.addEventListener(
+      "input",
+      () => this.assetTree.setFilter(this.assetSearch.value),
+      { signal: this.shellAbort.signal },
+    );
+    assetFilters.append(this.assetSearch);
+
+    const assetControls = document.createElement("div");
+    assetControls.className = "ci-tree-controls";
+    assetControls.append(
+      this.button("expandAll", () => this.assetTree.expandAll(true), true),
+      this.button("collapseAll", () => this.assetTree.expandAll(false), true),
+    );
+
+    this.assetTree = new AssetTreeView(
+      this.t,
+      { select: (node) => this.selectAsset(node) },
+      this.scope,
+    );
+
+    this.assetsContainer.append(
+      assetHeader,
+      assetFilters,
+      assetControls,
+      this.assetTree.element,
+    );
+
+    hierarchy.append(tabHeader, this.sceneContainer, this.assetsContainer);
     const separator = document.createElement("div");
     separator.className = "ci-resizer";
     separator.tabIndex = 0;
@@ -785,7 +881,13 @@ class InspectorUI {
     manual = false,
     afterCurrent = false,
   ): Promise<void> {
-    if (this.disposed || !this.selected || !this.treeSnapshot || !this.visible)
+    if (
+      this.disposed ||
+      this.activeHierarchyTab !== "scene" ||
+      !this.selected ||
+      !this.treeSnapshot ||
+      !this.visible
+    )
       return;
     const focused = document.activeElement;
     if (
@@ -842,6 +944,7 @@ class InspectorUI {
     }
   }
   private renderDetails(): void {
+    if (this.activeHierarchyTab !== "scene") return;
     const isSameNode = this.currentDetailsId === this.details?.id;
     const prevScroll = isSameNode ? this.inspectorBody.scrollTop : 0;
     this.currentDetailsId = this.details?.id ?? null;
@@ -899,6 +1002,103 @@ class InspectorUI {
     } else if (!isSameNode) {
       this.inspectorBody.scrollTop = 0;
     }
+  }
+  private switchHierarchyTab(tab: "scene" | "assets"): void {
+    if (this.activeHierarchyTab === tab) return;
+    this.activeHierarchyTab = tab;
+    this.sceneTabBtn.classList.toggle("is-active", tab === "scene");
+    this.assetsTabBtn.classList.toggle("is-active", tab === "assets");
+    this.sceneContainer.hidden = tab !== "scene";
+    this.assetsContainer.hidden = tab !== "assets";
+    if (tab === "assets") {
+      void this.refreshAssetTree();
+      if (this.selectedAssetNode && !this.selectedAssetNode.isBundle) {
+        this.renderAssetDetails(this.assetDetails);
+      } else {
+        this.renderAssetDetails(null);
+      }
+    } else {
+      this.renderDetails();
+    }
+  }
+
+  private async refreshAssetTree(manual = false): Promise<void> {
+    if (this.disposed || !this.visible) return;
+    try {
+      const snapshot = await this.client.call<AssetTreeSnapshot>("assetTree");
+      if (this.disposed) return;
+      this.assetSnapshot = snapshot;
+      this.assetTree.setSnapshot(snapshot);
+      this.assetCount.textContent = String(snapshot.count);
+    } catch (error) {
+      if (manual) this.reportError(error);
+    }
+  }
+
+  private async selectAsset(node: AssetNode): Promise<void> {
+    this.selectedAssetNode = node;
+    this.assetTree.setSelected(node.id);
+    this.actionsButton.disabled = true;
+    if (node.isBundle) {
+      this.inspectorTitle.textContent = `Bundle: ${node.name}`;
+      this.inspectorPath.textContent = `Loaded bundle (${node.childCount ?? 0} assets)`;
+      this.propertyView?.dispose();
+      this.propertyView = null;
+      this.inspectorBody.replaceChildren();
+      const info = document.createElement("div");
+      info.className = "ci-bundle-summary-card";
+      info.innerHTML = `<h3>📦 ${node.name}</h3><p class="ci-muted">${node.childCount ?? 0} assets indexed in this bundle.</p>`;
+      this.inspectorBody.append(info);
+      return;
+    }
+    try {
+      this.setStatus(this.t("loading"));
+      const details = await this.client.call<AssetDetails>("assetInspect", {
+        uuid: node.uuid,
+        bundle: node.bundle,
+      });
+      if (this.disposed || this.selectedAssetNode?.id !== node.id) return;
+      this.assetDetails = details;
+      this.renderAssetDetails(details);
+      this.setStatus(this.t("ready"));
+    } catch (error) {
+      this.reportError(error);
+    }
+  }
+
+  private renderAssetDetails(details: AssetDetails | null): void {
+    this.propertyView?.dispose();
+    this.propertyView = null;
+    this.inspectorBody.replaceChildren();
+    if (!details) {
+      const empty = document.createElement("div");
+      empty.className = "ci-empty";
+      empty.textContent = this.t("selectAsset");
+      this.inspectorBody.append(empty);
+      this.inspectorTitle.textContent = this.t("inspector");
+      this.inspectorPath.textContent = "";
+      return;
+    }
+    this.inspectorTitle.textContent = details.name;
+    this.inspectorPath.textContent = details.path || details.uuid;
+    this.inspectorBody.scrollTop = 0;
+    const el = renderAssetInspector(
+      details,
+      {
+        t: this.t,
+        call: <T>(
+          command: Command,
+          args: Record<string, unknown> = {},
+        ): Promise<T> => {
+          return this.client.call<T>(command, args);
+        },
+        run: (op) => this.run(op),
+        changed: async () => {},
+        preview: (url, title) => this.showImage(url, title),
+      },
+      this.shellAbort.signal,
+    );
+    this.inspectorBody.append(el);
   }
   private updatePauseButton(): void {
     if (!this.pauseButton) return;
@@ -1611,6 +1811,10 @@ class InspectorUI {
     window.clearTimeout(this.hoverTimer);
     this.client.setVisible(false);
     this.tree.dispose();
+    this.assetTree?.dispose();
+    this.assetSnapshot = null;
+    this.selectedAssetNode = null;
+    this.assetDetails = null;
     this.propertyView?.dispose();
     this.propertyView = null;
     this.closeMenu();

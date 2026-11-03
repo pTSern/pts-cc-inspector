@@ -32,6 +32,8 @@ export const COMMANDS = [
   "gameResume",
   "gameStep",
   "overlayConfig",
+  "assetTree",
+  "assetInspect",
 ] as const;
 export type Command = (typeof COMMANDS)[number];
 export type Json =
@@ -83,6 +85,41 @@ export interface TreeSnapshot {
   count: number;
   drawCalls: number | null;
   truncated?: boolean;
+}
+export interface AssetNode {
+  id: string;
+  parentId: string | null;
+  depth: number;
+  name: string;
+  bundle: string;
+  isBundle: boolean;
+  uuid?: string;
+  path?: string;
+  type?: string;
+  loaded?: boolean;
+  ext?: string;
+  childCount?: number;
+}
+export interface AssetTreeSnapshot {
+  generation: number;
+  bundles: string[];
+  nodes: AssetNode[];
+  count: number;
+}
+export interface AssetDetails {
+  id: string;
+  uuid: string;
+  name: string;
+  bundle: string;
+  path: string;
+  type: string;
+  loaded: boolean;
+  nativeUrl?: string;
+  previewUrl?: string;
+  width?: number;
+  height?: number;
+  info: Record<string, Json>;
+  meta?: Record<string, Json>;
 }
 export type PropertyKind =
   | "number"

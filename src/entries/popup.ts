@@ -19,6 +19,12 @@ async function start() {
   const options = document.createElement("button");
   options.textContent = t("openPreferences");
   options.addEventListener("click", () => chrome.runtime.openOptionsPage());
+  const reload = document.createElement("button");
+  reload.textContent = t("reloadExtension");
+  reload.addEventListener("click", () => {
+    chrome.runtime.reload();
+    window.close();
+  });
   const output = document.createElement("output");
   output.setAttribute("aria-live", "polite");
   open.addEventListener("click", async () => {
@@ -64,8 +70,8 @@ async function start() {
   });
   label.append(select);
   const footer = document.createElement("footer");
-  footer.textContent = t("privacyNote") + " · 1.0.0-alpha";
-  main.append(title, hint, open, options, label, output, footer);
+  footer.textContent = t("privacyNote") + " · 1.0.0-beta";
+  main.append(title, hint, open, options, reload, label, output, footer);
   app.replaceChildren(main);
 }
 void start().catch((error) => {

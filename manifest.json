@@ -3,7 +3,7 @@
   "name": "pts-cc-inspector",
   "short_name": "pts-cc-inspector",
   "version": "1.0.0",
-  "version_name": "1.0.0-alpha",
+  "version_name": "1.0.0-beta",
   "description": "Local Cocos Creator 2.x/3.x scene, component and rendering inspector.",
   "minimum_chrome_version": "111",
   "action": {

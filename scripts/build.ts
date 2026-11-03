@@ -57,7 +57,7 @@ await build({
   console.table(outputs);
   await writeFile(
     resolve(dist, "build-info.json"),
-    JSON.stringify({ version: "1.0.0-alpha", outputs }, null, 2) + "\n",
+    JSON.stringify({ version: "1.0.0-beta", outputs }, null, 2) + "\n",
   );
 });
 for (const file of [
@@ -81,7 +81,7 @@ if (
   manifest.key ||
   manifest.update_url ||
   manifest.version !== "1.0.0" ||
-  manifest.version_name !== "1.0.0-alpha"
+  manifest.version_name !== "1.0.0-beta"
 )
   throw new Error("Invalid local extension manifest");
 console.log("Local extension ready: " + dist);

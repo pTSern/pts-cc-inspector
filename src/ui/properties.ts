@@ -7,7 +7,7 @@ import type {
 } from "../shared/protocol";
 import type { MessageKey } from "../locales";
 import { renderWidgetComponent } from "./widget";
-
+import { createArrowTriangle, setArrowTriangleExpanded } from "./icons";
 export interface PropertyContext {
   t(key: MessageKey): string;
   call<T = unknown>(
@@ -43,9 +43,8 @@ export class PropertyView {
       const heading = document.createElement("summary");
       heading.className = "ci-group-summary";
 
-      const chevron = document.createElement("span");
-      chevron.className = "ci-group-chevron";
-      chevron.textContent = section.open ? "v" : ">";
+      const chevron = createArrowTriangle(section.open);
+      chevron.classList.add("ci-group-chevron");
       heading.append(chevron);
 
       section.addEventListener(
@@ -53,10 +52,10 @@ export class PropertyView {
         () => {
           if (section.open) {
             this.collapsedGroups.delete(group.id);
-            chevron.textContent = "v";
+            setArrowTriangleExpanded(chevron, true);
           } else {
             this.collapsedGroups.add(group.id);
-            chevron.textContent = ">";
+            setArrowTriangleExpanded(chevron, false);
           }
         },
         { signal: this.abort.signal },
@@ -394,9 +393,8 @@ export class PropertyView {
     }
 
     if (isExpandable) {
-      const chevron = document.createElement("span");
-      chevron.className = "ci-prop-chevron";
-      chevron.textContent = isExpanded ? "v" : ">";
+      const chevron = createArrowTriangle(isExpanded);
+      chevron.classList.add("ci-prop-chevron");
       chevron.addEventListener(
         "click",
         (e) => {
@@ -669,7 +667,7 @@ export class PropertyView {
           nested.hidden = true;
           this.expanded.delete(keyPath);
           const chev = labelBtn.querySelector(".ci-prop-chevron");
-          if (chev) chev.textContent = ">";
+          if (chev) setArrowTriangleExpanded(chev as HTMLElement, false);
           return;
         }
         const children =
@@ -682,7 +680,7 @@ export class PropertyView {
         nested.hidden = false;
         this.expanded.add(keyPath);
         const chev = labelBtn.querySelector(".ci-prop-chevron");
-        if (chev) chev.textContent = "v";
+        if (chev) setArrowTriangleExpanded(chev as HTMLElement, true);
       };
 
       wrapper.append(nested);

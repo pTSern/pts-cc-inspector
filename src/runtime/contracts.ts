@@ -256,10 +256,49 @@ export interface EngineDirector {
     };
   };
 }
+export interface EngineAssetInfo extends EngineObject {
+  uuid?: string;
+  path?: string;
+  ctor?: unknown;
+  ext?: string;
+  native?: string;
+  depends?: string[];
+}
+export interface EngineBundleConfig extends EngineObject {
+  name?: string;
+  base?: string;
+  importBase?: string;
+  nativeBase?: string;
+  deps?: string[];
+  assetInfos?: { _map?: Record<string, EngineAssetInfo>; _count?: number };
+  scenes?: { _map?: Record<string, unknown>; _count?: number };
+  paths?: { _map?: Record<string, unknown>; _count?: number };
+}
+export interface EngineBundle extends EngineObject {
+  name?: string;
+  base?: string;
+  _config?: EngineBundleConfig;
+}
+export interface EngineAssetManager extends EngineObject {
+  bundles?: {
+    _map?: Record<string, EngineBundle>;
+    _count?: number;
+    get?: (name: string) => EngineBundle | undefined;
+    forEach?: (fn: (bundle: EngineBundle, name: string) => void) => void;
+  };
+  getBundle?: (name: string) => EngineBundle | undefined;
+  assets?: {
+    _map?: Record<string, EngineAsset>;
+    _count?: number;
+    get?: (uuid: string) => EngineAsset | undefined;
+    forEach?: (fn: (asset: EngineAsset, uuid: string) => void) => void;
+  };
+}
 export interface CocosNamespace extends EngineObject {
   ENGINE_VERSION?: unknown;
   VERSION?: unknown;
   director?: EngineDirector;
+  assetManager?: EngineAssetManager;
   Director?: {
     EVENT_AFTER_SCENE_LAUNCH?: string;
     EVENT_BEFORE_DRAW?: string;
@@ -276,7 +315,7 @@ export interface CocosNamespace extends EngineObject {
   Color?: ValueConstructor;
   Size?: ValueConstructor;
   js?: {
-    getClassName?: (value: object) => unknown;
+    getClassName?: (value: unknown) => unknown;
     getClassByName?: (name: string) => unknown;
     _getClassById?: (id: string) => unknown;
   };

@@ -1,6 +1,6 @@
 import type { TreeNode, TreeSnapshot } from "../shared/protocol";
 import type { MessageKey } from "../locales";
-
+import { createArrowTriangle, setArrowTriangleExpanded } from "./icons";
 type Translate = (key: MessageKey) => string;
 export interface TreeActions {
   select(id: string): void;
@@ -272,8 +272,8 @@ export class HierarchyView {
       const row = document.createElement("div");
       row.className = "ci-tree-row";
       row.setAttribute("role", "treeitem");
-      const expander = document.createElement("span");
-      expander.className = "ci-expander";
+      const expander = createArrowTriangle(false);
+      expander.classList.add("ci-expander");
       expander.dataset.expand = "true";
       expander.setAttribute("aria-hidden", "true");
       const dot = document.createElement("span");
@@ -326,11 +326,13 @@ export class HierarchyView {
         dcElem.textContent = `[${dcCount}]`;
         dcElem.classList.toggle("has-dc", dcCount > 0);
       }
-      row.children[1].textContent = node.childCount
-        ? expanded
-          ? "▾"
-          : "▸"
-        : "";
+      const expanderEl = row.children[1] as HTMLElement;
+      if (node.childCount) {
+        expanderEl.style.visibility = "visible";
+        setArrowTriangleExpanded(expanderEl, expanded);
+      } else {
+        expanderEl.style.visibility = "hidden";
+      }
       row.children[2].setAttribute(
         "title",
         this.t(node.active ? "active" : "inactive"),

@@ -13,6 +13,7 @@ Lightweight, local, advertising-free Cocos Creator 2.x & 3.x runtime inspector e
 - **Local Asset Image Replacement:** Live-replace sprite/texture regions using local PNG, JPEG, or WebP files without any external network server.
 - **Engine Overlays & Atlas Debug:** Toggle the Cocos engine's built-in FPS/stats overlay, inspect dynamic atlas parameters, and view debug dynamic atlas pages.
 - **Event Breakpoints & Code Navigation:** Attach `debugger;` hooks to specific node touch or mouse events; inspect scripts and button handlers in DevTools.
+- **Asset Tree & Bundle Browser:** Two-tab hierarchy navigation (`Scene Tree` & `Assets Tree`). Accesses bundles directly from `cc.assetManager.bundles`, lists indexed assets by bundle, displays live image/texture previews, metadata, and quick copy/open actions.
 - **Dual Display Modes:**
   - Standard **DevTools Panel**: appears as the `pts-cc-inspector` tab in browser developer tools.
   - In-Page **Floating Inspector**: activate directly from the extension popup onto any live game tab without opening DevTools.
@@ -27,7 +28,7 @@ Lightweight, local, advertising-free Cocos Creator 2.x & 3.x runtime inspector e
 
 ```text
 pts-cc-inspector/
-├── manifest.json              # Clean MV3 manifest (version 1.0.0, version_name 1.0.0-alpha)
+├── manifest.json              # Clean MV3 manifest (version 1.0.0, version_name 1.0.0-beta)
 ├── package.json               # Development scripts (build, test, typecheck)
 ├── tsconfig.json              # Strict TypeScript configuration
 ├── scripts/
@@ -102,6 +103,7 @@ The compiled, ready-to-load extension will be in the `dist/` directory.
 ## Verified Compatibility
 
 Verified on Chromium (Edge 156 / Windows 10 x64):
+
 - **Cocos Creator 2.4.5** (tested with custom procedural scene fixture):
   - Full tree discovery, node hierarchy inspection
   - Live property reads and writes (numbers, strings, booleans, enums, colors, Vec3, contentSize)

@@ -51,6 +51,15 @@ test("page requests cannot introduce executable commands or malformed correlatio
     false,
   );
   assert.equal(isRequest(null), false);
+  assert.equal(isRequest({ id: "1", command: "assetTree" }), true);
+  assert.equal(
+    isRequest({
+      id: "1",
+      command: "assetInspect",
+      args: { uuid: "abc", bundle: "main" },
+    }),
+    true,
+  );
 });
 
 test("valueKind distinguishes engine value structs from nodes and components with x/y/z or width/height", () => {

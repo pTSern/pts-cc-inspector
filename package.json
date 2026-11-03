@@ -1,6 +1,6 @@
 {
   "name": "pts-cc-inspector",
-  "version": "1.0.0-alpha",
+  "version": "1.0.0-beta",
   "private": true,
   "type": "module",
   "description": "Local Cocos Creator runtime inspector for Chrome and Edge",

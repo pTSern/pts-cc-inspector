@@ -302,6 +302,34 @@ body {
   text-align: center;
   color: #9cafc7;
   font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ci-arrow-triangle {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 12px !important;
+  height: 12px !important;
+  flex: 0 0 12px !important;
+  flex-shrink: 0 !important;
+  color: #8b949e !important;
+  transition: transform 0.12s ease !important;
+  vertical-align: middle !important;
+  pointer-events: auto !important;
+}
+.ci-arrow-triangle svg {
+  width: 100% !important;
+  height: 100% !important;
+  fill: currentColor !important;
+  display: block !important;
+}
+.ci-arrow-triangle.is-collapsed {
+  transform: rotate(-90deg) !important;
+}
+.ci-arrow-triangle.is-expanded {
+  transform: rotate(0deg) !important;
 }
 .ci-active-dot {
   flex: 0 0 5px;
@@ -785,13 +813,10 @@ body {
   text-underline-offset: 3px !important;
 }
 .ci-prop-chevron {
-  font-family: ui-monospace, Consolas, monospace !important;
-  font-size: 10px !important;
-  font-weight: 700 !important;
-  color: #6e7681 !important;
-  width: 9px !important;
+  width: 11px !important;
+  height: 11px !important;
   flex-shrink: 0 !important;
-  text-align: center !important;
+  color: #6e7681 !important;
 }
 .ci-property-name-btn:hover .ci-prop-chevron {
   color: #79c0ff !important;
@@ -838,14 +863,10 @@ body {
   user-select: none !important;
 }
 .ci-group-chevron {
-  font-family: ui-monospace, Consolas, monospace !important;
-  font-size: 11px !important;
-  font-weight: 700 !important;
-  color: #8b949e !important;
-  width: 12px !important;
+  width: 13px !important;
+  height: 13px !important;
   flex-shrink: 0 !important;
-  text-align: center !important;
-  user-select: none !important;
+  color: #8b949e !important;
 }
 .ci-group-summary:hover .ci-group-chevron {
   color: #79c0ff !important;
@@ -1113,4 +1134,183 @@ body {
   cursor: pointer !important;
   background: transparent !important;
   border: 1px solid var(--ci-border) !important;
+}
+/* Hierarchy Tabs: Scene Tree vs Assets Tree */
+.ci-hierarchy-tabs {
+  display: flex !important;
+  background: #171d26 !important;
+  border-bottom: 1px solid var(--ci-border) !important;
+  flex-shrink: 0 !important;
+}
+.ci-tab-btn {
+  all: unset !important;
+  flex: 1 !important;
+  text-align: center !important;
+  padding: 7px 10px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  color: #8b99aa !important;
+  cursor: pointer !important;
+  border-bottom: 2px solid transparent !important;
+  transition: all 0.15s !important;
+  user-select: none !important;
+}
+.ci-tab-btn:hover {
+  color: #dce4ef !important;
+  background: #1c2430 !important;
+}
+.ci-tab-btn.is-active {
+  color: #58a6ff !important;
+  border-bottom-color: #388bfd !important;
+  background: #1a222e !important;
+}
+.ci-tree-container {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+/* Asset Tree and Items */
+.ci-asset-row .ci-asset-icon {
+  font-size: 12px !important;
+  margin-right: 4px !important;
+  flex-shrink: 0 !important;
+}
+.ci-asset-row.is-bundle-row {
+  font-weight: 600 !important;
+  color: #79c0ff !important;
+}
+
+/* Asset Inspector Details */
+.ci-asset-inspector {
+  padding: 12px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 12px !important;
+  color: #dce4ef !important;
+}
+.ci-asset-header-card {
+  padding: 10px !important;
+  background: #1a222e !important;
+  border: 1px solid #283546 !important;
+  border-radius: 4px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+}
+.ci-asset-title {
+  margin: 0 !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: #e6edf3 !important;
+  word-break: break-all !important;
+}
+.ci-asset-badge-row {
+  display: flex !important;
+  gap: 6px !important;
+  flex-wrap: wrap !important;
+}
+.ci-badge-bundle {
+  background: #1f3a5a !important;
+  color: #79c0ff !important;
+}
+.ci-badge-type {
+  background: #2a3547 !important;
+  color: #a5b6cf !important;
+}
+.ci-badge-loaded {
+  background: #134226 !important;
+  color: #56d364 !important;
+}
+.ci-badge-unloaded {
+  background: #39281a !important;
+  color: #e3b341 !important;
+}
+.ci-asset-preview-section {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+}
+.ci-asset-section-title {
+  font-size: 10px !important;
+  text-transform: uppercase !important;
+  color: #8b99aa !important;
+  letter-spacing: 0.5px !important;
+  font-weight: 600 !important;
+}
+.ci-asset-preview-box {
+  background: repeating-conic-gradient(#273240 0% 25%, #18202b 0% 50%) 0 / 16px
+    16px !important;
+  border: 1px solid #334255 !important;
+  border-radius: 4px !important;
+  padding: 8px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  position: relative !important;
+  min-height: 100px !important;
+  max-height: 240px !important;
+  overflow: hidden !important;
+}
+.ci-asset-preview-img {
+  max-width: 100% !important;
+  max-height: 200px !important;
+  object-fit: contain !important;
+}
+.ci-asset-dim-badge {
+  position: absolute !important;
+  bottom: 6px !important;
+  right: 6px !important;
+  background: rgba(0, 0, 0, 0.7) !important;
+  padding: 2px 6px !important;
+  border-radius: 3px !important;
+  font-size: 10px !important;
+  color: #dce4ef !important;
+  font-family: ui-monospace, Consolas, monospace !important;
+}
+.ci-asset-meta-table {
+  background: #161d27 !important;
+  border: 1px solid #283344 !important;
+  border-radius: 4px !important;
+  overflow: hidden !important;
+}
+.ci-asset-meta-row {
+  display: flex !important;
+  padding: 6px 10px !important;
+  border-bottom: 1px solid #222c3a !important;
+  font-size: 11px !important;
+}
+.ci-asset-meta-row:last-child {
+  border-bottom: none !important;
+}
+.ci-asset-meta-key {
+  width: 110px !important;
+  color: #8b99aa !important;
+  flex-shrink: 0 !important;
+  font-weight: 500 !important;
+}
+.ci-asset-meta-val {
+  flex: 1 !important;
+  color: #dce4ef !important;
+  word-break: break-all !important;
+  font-family: ui-monospace, Consolas, monospace !important;
+}
+.ci-asset-actions-row {
+  display: flex !important;
+  gap: 8px !important;
+  flex-wrap: wrap !important;
+}
+.ci-asset-actions-row .ci-btn {
+  font-size: 11px !important;
+}
+.ci-bundle-summary-card {
+  padding: 16px !important;
+  color: #dce4ef !important;
+}
+.ci-bundle-summary-card h3 {
+  margin: 0 0 6px 0 !important;
+  font-size: 14px !important;
 }

@@ -1,7 +1,11 @@
 import type {
+  AssetDetails,
+  AssetNode,
+  AssetTreeSnapshot,
   EditorTarget,
   EngineSupport,
   GameInfo,
+  Json,
   NodeDetails,
   Property,
   PropertyGroup,
@@ -38,6 +42,10 @@ import {
   type EngineDirector,
   type EngineAtlas,
   type EngineAsset,
+  type EngineAssetInfo,
+  type EngineAssetManager,
+  type EngineBundle,
+  type EngineTexture,
 } from "./contracts";
 
 const MAX_NODES = 20000;
@@ -374,6 +382,7 @@ export class EngineInspector {
       typeof this.cc.director?.pause === "function"
     )
       capabilities.push("gameControl");
+    if (this.cc.assetManager?.bundles) capabilities.push("assetTree");
     return {
       supported,
       engineVersion: version,
@@ -453,6 +462,680 @@ export class EngineInspector {
       count: nodes.length,
       drawCalls: this.drawCalls(),
       truncated: truncated || stack.length > 0,
+    };
+  }
+  private assetTree(): AssetTreeSnapshot {
+    function extractUuid(entry: unknown): string | null {
+      if (typeof entry === "string" && entry.length) return entry;
+      if (
+        Array.isArray(entry) &&
+        typeof entry[0] === "string" &&
+        entry[0].length
+      )
+        return entry[0];
+      if (
+        entry &&
+        typeof entry === "object" &&
+        "uuid" in entry &&
+        typeof (entry as Record<string, unknown>).uuid === "string"
+      )
+        return (entry as Record<string, unknown>).uuid as string;
+      return null;
+    }
+
+    const resolveAssetType = (value: unknown): string => {
+      if (!value) return "Asset";
+      const js =
+        this.cc?.js ||
+        (
+          globalThis as unknown as {
+            cc?: { js?: { getClassName?: (v: unknown) => string } };
+          }
+        ).cc?.js;
+      if (typeof js?.getClassName === "function") {
+        try {
+          const name = js.getClassName(value);
+          if (typeof name === "string" && name.length > 1) return name;
+        } catch {}
+      }
+      if (typeof value === "function" && value.name && value.name.length > 2) {
+        return value.name;
+      }
+      if (isObject(value)) {
+        const ctor = (value as { constructor?: { name?: string } }).constructor;
+        if (typeof ctor === "function" && ctor.name && ctor.name.length > 2) {
+          return ctor.name;
+        }
+      }
+      return "Asset";
+    };
+    const nodes: AssetNode[] = [];
+    const globals = globalThis as typeof globalThis & { cc?: EngineObject };
+    const am = (this.cc.assetManager || globals.cc?.assetManager) as
+      | EngineAssetManager
+      | undefined;
+    const bundleNames: string[] = [];
+
+    const bundlesMap: Record<string, EngineBundle> = {};
+    if (am?.bundles && typeof am.bundles === "object") {
+      const bObj = am.bundles as unknown as Record<string, unknown>;
+      if (bObj._map && typeof bObj._map === "object") {
+        for (const k in bObj._map as Record<string, EngineBundle>) {
+          if ((bObj._map as Record<string, EngineBundle>)[k]) {
+            bundlesMap[k] = (bObj._map as Record<string, EngineBundle>)[k];
+          }
+        }
+      }
+      if (typeof (am.bundles as { forEach?: unknown }).forEach === "function") {
+        try {
+          (
+            am.bundles as {
+              forEach: (fn: (b: EngineBundle, k: string) => void) => void;
+            }
+          ).forEach((b: EngineBundle, k: string) => {
+            const n = String(
+              k ||
+                b?.name ||
+                (b as { _config?: { name?: string } })?._config?.name ||
+                "",
+            );
+            if (n && b) bundlesMap[n] = b;
+          });
+        } catch {}
+      }
+      for (const k of Object.keys(bObj)) {
+        if (
+          k !== "_map" &&
+          k !== "_count" &&
+          typeof bObj[k] === "object" &&
+          bObj[k] &&
+          (bObj[k] as EngineBundle)._config
+        ) {
+          bundlesMap[k] = bObj[k] as EngineBundle;
+        }
+      }
+    }
+    if (typeof am?.getBundle === "function") {
+      for (const candidate of [
+        "main",
+        "resources",
+        "internal",
+        "start-scene",
+      ]) {
+        if (!bundlesMap[candidate]) {
+          try {
+            const b = am.getBundle(candidate) as EngineBundle | undefined;
+            if (b) bundlesMap[candidate] = b;
+          } catch {}
+        }
+      }
+    }
+
+    for (const name of Object.keys(bundlesMap)) {
+      const bundle = bundlesMap[name];
+      if (!bundle) continue;
+      bundleNames.push(name);
+      const bundleId = `bundle:${name}`;
+      const cfg =
+        bundle._config ||
+        (bundle as unknown as { config?: Record<string, unknown> }).config ||
+        {};
+      const cfgObj = cfg as Record<string, unknown>;
+      const assetInfos =
+        (cfgObj.assetInfos as { _map?: Record<string, unknown> } | undefined)
+          ?._map ||
+        (cfgObj.assetInfos as Record<string, unknown> | undefined) ||
+        {};
+      const paths =
+        (cfgObj.paths as { _map?: Record<string, unknown> } | undefined)
+          ?._map ||
+        (cfgObj.paths as Record<string, unknown> | undefined) ||
+        {};
+      const scenes =
+        (cfgObj.scenes as { _map?: Record<string, unknown> } | undefined)
+          ?._map ||
+        (cfgObj.scenes as Record<string, unknown> | undefined) ||
+        {};
+
+      const bundleAssets: AssetNode[] = [];
+      const seenUuids = new Set<string>();
+
+      for (const pathKey in paths) {
+        const raw = paths[pathKey];
+        const entries = Array.isArray(raw) ? raw : [raw];
+        for (const entry of entries) {
+          const uuid = extractUuid(entry);
+          if (!uuid || seenUuids.has(uuid)) continue;
+          seenUuids.add(uuid);
+          const rawCtor =
+            entry && typeof entry === "object" && "ctor" in entry
+              ? (entry as Record<string, unknown>).ctor
+              : undefined;
+          const loadedAsset = am?.assets?.get?.(uuid);
+          const type = resolveAssetType(loadedAsset || rawCtor);
+          const loaded = Boolean(loadedAsset);
+          const rawExt =
+            entry && typeof entry === "object" && "ext" in entry
+              ? String((entry as Record<string, unknown>).ext)
+              : typeof (entry as { native?: unknown })?.native === "string"
+                ? "." +
+                  String((entry as { native: string }).native)
+                    .split(".")
+                    .pop()
+                : "";
+          const nameParts = pathKey.split("/");
+          const displayName = nameParts[nameParts.length - 1] || pathKey;
+          bundleAssets.push({
+            id: `asset:${name}:${uuid}`,
+            parentId: bundleId,
+            depth: 1,
+            name: displayName,
+            bundle: name,
+            isBundle: false,
+            uuid,
+            path: pathKey,
+            type,
+            loaded,
+            ext: rawExt,
+            childCount: 0,
+          });
+        }
+      }
+
+      for (const sceneName in scenes) {
+        const item = scenes[sceneName] as
+          | { uuid?: string; url?: string }
+          | string
+          | undefined;
+        const uuid =
+          extractUuid(item) ||
+          (typeof item === "object" && item?.url) ||
+          sceneName;
+        if (!seenUuids.has(uuid)) {
+          seenUuids.add(uuid);
+          bundleAssets.push({
+            id: `asset:${name}:${uuid}`,
+            parentId: bundleId,
+            depth: 1,
+            name: `${sceneName} (Scene)`,
+            bundle: name,
+            isBundle: false,
+            uuid,
+            path: sceneName,
+            type: "cc.SceneAsset",
+            loaded: Boolean(am?.assets?.get?.(uuid)),
+            ext: ".scene",
+            childCount: 0,
+          });
+        }
+      }
+
+      for (const uuid in assetInfos) {
+        const info = (assetInfos[uuid] || {}) as Record<string, unknown>;
+        if (Array.isArray(info.packedUuids)) {
+          for (const packedUuid of info.packedUuids) {
+            const pUuid = String(packedUuid);
+            if (seenUuids.has(pUuid)) continue;
+            seenUuids.add(pUuid);
+            const loaded = am?.assets?.get?.(pUuid);
+            const type = resolveAssetType(loaded);
+            const pName =
+              (loaded as { name?: string } | undefined)?.name ||
+              pUuid.slice(0, 8);
+            bundleAssets.push({
+              id: `asset:${name}:${pUuid}`,
+              parentId: bundleId,
+              depth: 1,
+              name: pName,
+              bundle: name,
+              isBundle: false,
+              uuid: pUuid,
+              path: pName,
+              type,
+              loaded: Boolean(loaded),
+              childCount: 0,
+            });
+          }
+        }
+        if (seenUuids.has(uuid)) continue;
+        seenUuids.add(uuid);
+        const ext =
+          typeof info.ext === "string"
+            ? info.ext
+            : typeof info.native === "string"
+              ? "." + info.native.split(".").pop()
+              : "";
+        const loaded = am?.assets?.get?.(uuid);
+        const type = resolveAssetType(loaded || info.ctor);
+        const displayName =
+          (loaded as { name?: string } | undefined)?.name ||
+          (typeof info.path === "string" ? info.path : "") ||
+          uuid.slice(0, 8) + ext;
+        bundleAssets.push({
+          id: `asset:${name}:${uuid}`,
+          parentId: bundleId,
+          depth: 1,
+          name: displayName,
+          bundle: name,
+          isBundle: false,
+          uuid,
+          path: typeof info.path === "string" ? info.path : displayName,
+          type,
+          loaded: Boolean(loaded),
+          ext,
+          childCount: 0,
+        });
+      }
+
+      if (Array.isArray(cfgObj.uuids)) {
+        for (const uuid of cfgObj.uuids) {
+          const u = String(uuid);
+          if (seenUuids.has(u)) continue;
+          seenUuids.add(u);
+          const loaded = am?.assets?.get?.(u);
+          const type = resolveAssetType(loaded);
+          const displayName =
+            (loaded as { name?: string } | undefined)?.name || u.slice(0, 8);
+          bundleAssets.push({
+            id: `asset:${name}:${u}`,
+            parentId: bundleId,
+            depth: 1,
+            name: displayName,
+            bundle: name,
+            isBundle: false,
+            uuid: u,
+            path: displayName,
+            type,
+            loaded: Boolean(loaded),
+            childCount: 0,
+          });
+        }
+      }
+
+      bundleAssets.sort((a, b) => a.name.localeCompare(b.name));
+
+      nodes.push({
+        id: bundleId,
+        parentId: null,
+        depth: 0,
+        name: name,
+        bundle: name,
+        isBundle: true,
+        childCount: bundleAssets.length,
+      });
+
+      nodes.push(...bundleAssets);
+    }
+
+    const loadedMap =
+      (am?.assets as { _map?: Record<string, EngineAsset> } | undefined)
+        ?._map || (am?.assets as Record<string, EngineAsset> | undefined);
+    if (loadedMap && typeof loadedMap === "object") {
+      const extraAssets: AssetNode[] = [];
+      const memBundleId = "bundle:in-memory";
+      for (const uuid in loadedMap) {
+        if (nodes.some((n) => n.uuid === uuid)) continue;
+        const asset = loadedMap[uuid];
+        if (!asset) continue;
+        const type = resolveAssetType(asset);
+        const name = (asset as { name?: string }).name || uuid.slice(0, 8);
+        extraAssets.push({
+          id: `asset:in-memory:${uuid}`,
+          parentId: memBundleId,
+          depth: 1,
+          name,
+          bundle: "in-memory",
+          isBundle: false,
+          uuid,
+          path: name,
+          type,
+          loaded: true,
+          childCount: 0,
+        });
+      }
+      if (extraAssets.length > 0) {
+        bundleNames.push("in-memory");
+        extraAssets.sort((a, b) => a.name.localeCompare(b.name));
+        nodes.push({
+          id: memBundleId,
+          parentId: null,
+          depth: 0,
+          name: "in-memory (Loaded)",
+          bundle: "in-memory",
+          isBundle: true,
+          childCount: extraAssets.length,
+        });
+        nodes.push(...extraAssets);
+      }
+    }
+
+    const loaderCache = (
+      this.cc as {
+        loader?: {
+          _cache?: Record<
+            string,
+            { id?: string; url?: string; type?: string; isLoaded?: boolean }
+          >;
+        };
+      }
+    ).loader?._cache;
+    if (nodes.length === 0 && loaderCache && typeof loaderCache === "object") {
+      const loaderAssets: AssetNode[] = [];
+      const loaderBundleId = "bundle:resources";
+      for (const key in loaderCache) {
+        const item = loaderCache[key];
+        if (!item) continue;
+        const url = item.url || item.id || key;
+        const nameParts = url.split("/");
+        const displayName = nameParts[nameParts.length - 1] || url;
+        const ext = "." + displayName.split(".").pop();
+        loaderAssets.push({
+          id: `asset:resources:${key}`,
+          parentId: loaderBundleId,
+          depth: 1,
+          name: displayName,
+          bundle: "resources",
+          isBundle: false,
+          uuid: key,
+          path: url,
+          type: item.type || "Asset",
+          loaded: Boolean(item.isLoaded ?? true),
+          ext,
+          childCount: 0,
+        });
+      }
+      if (loaderAssets.length > 0) {
+        bundleNames.push("resources");
+        loaderAssets.sort((a, b) => a.name.localeCompare(b.name));
+        nodes.push({
+          id: loaderBundleId,
+          parentId: null,
+          depth: 0,
+          name: "resources (Loader)",
+          bundle: "resources",
+          isBundle: true,
+          childCount: loaderAssets.length,
+        });
+        nodes.push(...loaderAssets);
+      }
+    }
+
+    return {
+      generation: this.generation,
+      bundles: bundleNames,
+      nodes,
+      count: nodes.length,
+    };
+  }
+
+  private assetInspect(args: Record<string, unknown>): AssetDetails {
+    const uuid = String(args.uuid || "");
+    const bundleName = String(args.bundle || "");
+    const globals = globalThis as typeof globalThis & { cc?: EngineObject };
+    const am = (this.cc.assetManager || globals.cc?.assetManager) as
+      | EngineAssetManager
+      | undefined;
+    const bundle =
+      am?.bundles?._map?.[bundleName] ||
+      am?.bundles?.get?.(bundleName) ||
+      (am?.bundles as Record<string, EngineBundle> | undefined)?.[bundleName];
+    const cfg =
+      bundle?._config ||
+      (bundle as unknown as { config?: Record<string, unknown> })?.config;
+    const info = ((
+      cfg?.assetInfos as { _map?: Record<string, unknown> } | undefined
+    )?._map?.[uuid] ||
+      (cfg?.assetInfos as Record<string, unknown> | undefined)?.[uuid]) as
+      | EngineAssetInfo
+      | undefined;
+    const loadedAsset =
+      am?.assets?.get?.(uuid) ||
+      (
+        this.cc as {
+          loader?: { _cache?: Record<string, EngineAsset> };
+        }
+      ).loader?._cache?.[uuid];
+
+    const js =
+      this.cc?.js ||
+      (
+        globalThis as unknown as {
+          cc?: { js?: { getClassName?: (v: unknown) => string } };
+        }
+      ).cc?.js;
+    let type = "Asset";
+    if (typeof js?.getClassName === "function") {
+      try {
+        const name = js.getClassName(loadedAsset || info?.ctor);
+        if (typeof name === "string" && name.length > 1) type = name;
+      } catch {}
+    }
+    if (type === "Asset") {
+      type = loadedAsset
+        ? className(loadedAsset, this.cc)
+        : info?.ctor
+          ? className(info.ctor as object, this.cc)
+          : "Asset";
+    }
+    const name =
+      (loadedAsset as { name?: string } | undefined)?.name ||
+      info?.path ||
+      uuid;
+    const path = info?.path || name;
+
+    let previewUrl: string | undefined;
+    let width: number | undefined;
+    let height: number | undefined;
+
+    if (loadedAsset) {
+      try {
+        if (imageLike(loadedAsset)) {
+          const prev = imagePreview(loadedAsset as EngineTexture);
+          previewUrl = prev.url;
+          width = prev.width;
+          height = prev.height;
+        } else if (
+          (loadedAsset as EngineTexture).texture &&
+          imageLike((loadedAsset as EngineTexture).texture)
+        ) {
+          const prev = imagePreview((loadedAsset as EngineTexture).texture!);
+          previewUrl = prev.url;
+          width = prev.width;
+          height = prev.height;
+        }
+      } catch {}
+    }
+
+    const metadata: Record<string, Json> = {
+      UUID: uuid,
+      Bundle: bundleName || "None",
+      Type: type,
+      Status: loadedAsset ? "Loaded (In Memory)" : "Not Loaded (On Disk)",
+    };
+    if (path) metadata["Path"] = path;
+    if (width !== undefined && height !== undefined) {
+      metadata["Dimensions"] = `${width} × ${height} px`;
+    }
+    if (info?.native) metadata["Native"] = String(info.native);
+    if (info?.ext) metadata["Extension"] = String(info.ext);
+    if (loadedAsset?.nativeUrl)
+      metadata["Native URL"] = String(loadedAsset.nativeUrl);
+    if (
+      loadedAsset &&
+      typeof (loadedAsset as { duration?: number }).duration === "number"
+    ) {
+      metadata["Duration"] =
+        `${(loadedAsset as { duration: number }).duration.toFixed(2)}s`;
+    }
+    if (Array.isArray(info?.depends)) {
+      metadata["Dependencies"] = `${info.depends.length} assets`;
+    }
+
+    const meta: Record<string, Json> = {};
+
+    if (loadedAsset) {
+      const anyAsset = loadedAsset as Record<string, unknown>;
+      if (typeof anyAsset.refCount === "number") {
+        meta["Reference Count"] = anyAsset.refCount;
+      }
+      if (anyAsset.isLoaded !== undefined) {
+        meta["Is Loaded"] = Boolean(anyAsset.isLoaded);
+      }
+      if (typeof anyAsset.nativeUrl === "string" && anyAsset.nativeUrl) {
+        meta["Native URL"] = anyAsset.nativeUrl;
+      }
+      if (typeof anyAsset._native === "string" && anyAsset._native) {
+        meta["Native File"] = anyAsset._native;
+      }
+
+      if (type.includes("SpriteFrame") || anyAsset.rect || anyAsset._rect) {
+        const r =
+          typeof anyAsset.getRect === "function"
+            ? anyAsset.getRect()
+            : anyAsset.rect || anyAsset._rect;
+        if (r && typeof r === "object") {
+          meta["Rect"] =
+            `${(r as Record<string, unknown>).x ?? 0}, ${(r as Record<string, unknown>).y ?? 0}, ${(r as Record<string, unknown>).width ?? 0} × ${(r as Record<string, unknown>).height ?? 0}`;
+        }
+        const orig =
+          typeof anyAsset.getOriginalSize === "function"
+            ? anyAsset.getOriginalSize()
+            : anyAsset.originalSize || anyAsset._originalSize;
+        if (orig && typeof orig === "object") {
+          meta["Original Size"] =
+            `${(orig as Record<string, unknown>).width ?? 0} × ${(orig as Record<string, unknown>).height ?? 0} px`;
+        }
+        const offset =
+          typeof anyAsset.getOffset === "function"
+            ? anyAsset.getOffset()
+            : anyAsset.offset || anyAsset._offset;
+        if (offset && typeof offset === "object") {
+          meta["Offset"] =
+            `${(offset as Record<string, unknown>).x ?? 0}, ${(offset as Record<string, unknown>).y ?? 0}`;
+        }
+        const rotated =
+          typeof anyAsset.isRotated === "function"
+            ? anyAsset.isRotated()
+            : (anyAsset.rotated ?? anyAsset._rotated);
+        if (rotated !== undefined) {
+          meta["Rotated"] = Boolean(rotated);
+        }
+        const insets = anyAsset.capInsets || anyAsset._capInsets;
+        if (Array.isArray(insets)) {
+          meta["Cap Insets"] = `[${insets.join(", ")}]`;
+        }
+        const packable = anyAsset.packable ?? anyAsset._packable;
+        if (packable !== undefined) {
+          meta["Packable"] = Boolean(packable);
+        }
+      }
+
+      if (
+        type.includes("Texture") ||
+        type.includes("Image") ||
+        anyAsset.getPixelFormat ||
+        anyAsset._format !== undefined
+      ) {
+        const fmt =
+          typeof anyAsset.getPixelFormat === "function"
+            ? anyAsset.getPixelFormat()
+            : anyAsset._format;
+        if (fmt !== undefined) meta["Pixel Format"] = String(fmt);
+        const minF =
+          typeof anyAsset.getMinFilter === "function"
+            ? anyAsset.getMinFilter()
+            : anyAsset._minFilter;
+        if (minF !== undefined) meta["Min Filter"] = String(minF);
+        const magF =
+          typeof anyAsset.getMagFilter === "function"
+            ? anyAsset.getMagFilter()
+            : anyAsset._magFilter;
+        if (magF !== undefined) meta["Mag Filter"] = String(magF);
+        const wrapS =
+          typeof anyAsset.getWrapS === "function"
+            ? anyAsset.getWrapS()
+            : anyAsset._wrapS;
+        if (wrapS !== undefined) meta["Wrap S"] = String(wrapS);
+        const wrapT =
+          typeof anyAsset.getWrapT === "function"
+            ? anyAsset.getWrapT()
+            : anyAsset._wrapT;
+        if (wrapT !== undefined) meta["Wrap T"] = String(wrapT);
+        const mipmaps =
+          typeof anyAsset.hasMipmaps === "function"
+            ? anyAsset.hasMipmaps()
+            : Boolean((anyAsset._mipmaps as unknown[])?.length);
+        if (mipmaps !== undefined) meta["Has Mipmaps"] = Boolean(mipmaps);
+      }
+
+      if (type.includes("Audio") || typeof anyAsset.duration === "number") {
+        if (typeof anyAsset.duration === "number")
+          meta["Duration"] = `${anyAsset.duration.toFixed(2)}s`;
+        if (anyAsset.loadMode !== undefined)
+          meta["Load Mode"] = String(anyAsset.loadMode);
+      }
+
+      if (type.includes("Material")) {
+        const effect = (anyAsset.effectAsset || anyAsset._effectAsset) as
+          | { name?: string }
+          | undefined;
+        if (effect?.name) meta["Effect Asset"] = effect.name;
+        if (anyAsset.technique !== undefined)
+          meta["Technique Index"] = String(anyAsset.technique);
+        const passes = anyAsset.passes || anyAsset._passes;
+        if (Array.isArray(passes)) meta["Passes Count"] = passes.length;
+      }
+
+      if (type.includes("Prefab")) {
+        if (anyAsset.asyncLoadAssets !== undefined)
+          meta["Async Load Assets"] = Boolean(anyAsset.asyncLoadAssets);
+        if (anyAsset.optimizationPolicy !== undefined)
+          meta["Optimization Policy"] = String(anyAsset.optimizationPolicy);
+      }
+    }
+
+    if (info) {
+      if (Array.isArray(info.packs)) meta["Packs"] = JSON.stringify(info.packs);
+      if (Array.isArray(info.packedUuids))
+        meta["Packed UUIDs"] = `${info.packedUuids.length} sub-assets`;
+      if (Array.isArray(info.depends)) {
+        meta["Dependencies Count"] = info.depends.length;
+        if (info.depends.length <= 10) {
+          meta["Dependencies"] = info.depends.join(", ");
+        }
+      }
+      if (info.redirect) meta["Redirect Target"] = String(info.redirect);
+      if (info.native) meta["Config Native"] = String(info.native);
+      if (info.ext) meta["Config Extension"] = String(info.ext);
+    }
+
+    if (cfg) {
+      if (cfg.name) meta["Bundle Name"] = String(cfg.name);
+      if (cfg.base) meta["Bundle Base"] = String(cfg.base);
+      if (cfg.importBase) meta["Import Base"] = String(cfg.importBase);
+      if (cfg.nativeBase) meta["Native Base"] = String(cfg.nativeBase);
+      if (Array.isArray(cfg.deps) && cfg.deps.length > 0)
+        meta["Bundle Dependencies"] = cfg.deps.join(", ");
+    }
+    return {
+      id: `asset:${bundleName}:${uuid}`,
+      uuid,
+      name: String(name),
+      bundle: bundleName,
+      path: String(path),
+      type,
+      loaded: Boolean(loadedAsset),
+      nativeUrl:
+        typeof loadedAsset?.nativeUrl === "string"
+          ? loadedAsset.nativeUrl
+          : typeof info?.native === "string"
+            ? info.native
+            : undefined,
+      previewUrl,
+      width,
+      height,
+      info: metadata,
+      meta,
     };
   }
   private widgetReason(node: EngineNode, key: string): string | undefined {
@@ -1096,6 +1779,16 @@ export class EngineInspector {
       case "overlayConfig": {
         if (args.color !== undefined) this.overlay.setColor(args.color);
         return { ok: true };
+      }
+      case "assetTree":
+        return this.assetTree();
+      case "assetInspect":
+        return this.assetInspect(args);
+      case "openAsset": {
+        if (typeof args.uuid === "string" && args.uuid) {
+          return { uuid: args.uuid };
+        }
+        break;
       }
       case "fps": {
         const visible = args.visible ?? args.enabled;

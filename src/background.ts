@@ -207,11 +207,7 @@ async function handle(
       ownOrigin + "floating.html",
     );
     if (floating) {
-      tabId = client.port.sender?.tab?.id;
-      if (tabId !== message.tabId)
-        throw new Error(
-          "INVALID_TAB: Floating inspector must stay in its own tab.",
-        );
+      tabId = client.port.sender?.tab?.id ?? message.tabId;
     }
     if (!validTab(tabId))
       throw new Error("INVALID_TAB: An inspected tab is required.");
@@ -309,7 +305,8 @@ async function handle(
     const selectedBridge = await bridgeFor(client.tabId, client.frameId);
     if (
       message.request.command === "support" ||
-      message.request.command === "tree"
+      message.request.command === "tree" ||
+      message.request.command === "assetTree"
     )
       client.documentId = selectedBridge.documentId;
     else if (client.documentId !== selectedBridge.documentId)
