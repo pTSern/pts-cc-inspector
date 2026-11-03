@@ -28,6 +28,9 @@ export const COMMANDS = [
   "openAsset",
   "openPrefab",
   "detach",
+  "gamePause",
+  "gameResume",
+  "gameStep",
 ] as const;
 export type Command = (typeof COMMANDS)[number];
 export type Json =
@@ -143,6 +146,7 @@ export interface GameInfo {
     canView: boolean;
   };
   fpsVisible: boolean;
+  paused?: boolean;
 }
 export interface EditorTarget {
   uuid?: string;

@@ -68,6 +68,11 @@ class InspectorUI {
   private drawAttribution = false;
   private attributionControl!: HTMLLabelElement;
   private bucketControls!: HTMLDivElement;
+  private isPaused = false;
+  private pauseButton!: HTMLButtonElement;
+  private stepButton!: HTMLButtonElement;
+  private showDrawCalls = false;
+  private showDrawCallsControl!: HTMLLabelElement;
   private menuAbort: AbortController | null = null;
   private dialogAbort: AbortController | null = null;
   private settingsQueue: Promise<void> = Promise.resolve();
@@ -231,6 +236,10 @@ class InspectorUI {
       "aria-pressed",
       this.fpsVisible === null ? "mixed" : String(this.fpsVisible),
     );
+    this.pauseButton = this.button("pause", () => this.togglePause());
+    this.updatePauseButton();
+    this.stepButton = this.button("step", () => this.stepRun());
+    this.stepButton.title = this.t("stepHelp");
     toolbar.append(
       brand,
       this.engineLabel,
@@ -238,6 +247,8 @@ class InspectorUI {
       refresh,
       this.pickButton,
       this.fpsButton,
+      this.pauseButton,
+      this.stepButton,
       this.button("gameInfo", () => this.showGameInfo()),
       this.button("settings", () => this.showSettings()),
     );
@@ -329,6 +340,25 @@ class InspectorUI {
     );
     this.attributionControl = attribution.label;
     this.attributionControl.classList.add("ci-draw-toggle");
+    const showDc = this.checkbox(
+      "showDrawCallCount",
+      this.showDrawCalls,
+      (value) => {
+        this.showDrawCalls = value;
+        if (value && !this.drawAttribution) {
+          this.drawAttribution = true;
+          attribution.input.checked = true;
+          this.run(async () => {
+            await this.refreshTree(true, true);
+            this.tree.setShowDrawCalls(true);
+          });
+        } else {
+          this.tree.setShowDrawCalls(value);
+        }
+      },
+    );
+    this.showDrawCallsControl = showDc.label;
+    this.showDrawCallsControl.classList.add("ci-draw-toggle");
     this.bucketControls = document.createElement("div");
     this.bucketControls.className = "ci-bucket-controls";
     this.bucketControls.hidden = true;
@@ -396,6 +426,7 @@ class InspectorUI {
       filters,
       treeControls,
       this.attributionControl,
+      this.showDrawCallsControl,
       this.bucketControls,
       this.tree.element,
     );
@@ -544,6 +575,15 @@ class InspectorUI {
     );
     this.attributionControl.querySelector("input")!.checked =
       this.drawAttribution;
+    this.showDrawCallsControl.hidden = !this.support?.capabilities.includes(
+      "drawCallAttribution",
+    );
+    this.showDrawCallsControl.querySelector("input")!.checked =
+      this.showDrawCalls;
+    this.pauseButton.hidden =
+      !this.support?.capabilities.includes("gameControl");
+    this.stepButton.hidden =
+      !this.support?.capabilities.includes("gameControl");
   }
   private async connect(): Promise<void> {
     if (this.disposed || !this.visible) return;
@@ -565,6 +605,13 @@ class InspectorUI {
     if (this.disposed || epoch !== this.epoch) return;
     this.support = support;
     this.renderSupport();
+    const gameInfo = await this.client
+      .call<GameInfo>("gameInfo")
+      .catch(() => null);
+    if (gameInfo && typeof gameInfo.paused === "boolean") {
+      this.isPaused = gameInfo.paused;
+      this.updatePauseButton();
+    }
     if (!support.supported) {
       this.treeSnapshot = null;
       this.selected = null;
@@ -767,6 +814,7 @@ class InspectorUI {
   }
   private renderDetails(): void {
     const expanded = this.propertyView?.expandedPaths;
+    const collapsedGroups = this.propertyView?.collapsedGroupIds;
     this.propertyView?.dispose();
     this.propertyView = null;
     this.inspectorBody.replaceChildren();
@@ -804,8 +852,28 @@ class InspectorUI {
         preview: (url, title) => this.showImage(url, title),
       },
       expanded,
+      collapsedGroups,
     );
     this.inspectorBody.append(this.propertyView.element);
+  }
+  private updatePauseButton(): void {
+    if (!this.pauseButton) return;
+    this.pauseButton.textContent = this.isPaused
+      ? `▶ ${this.t("resume")}`
+      : `⏸ ${this.t("pause")}`;
+    this.pauseButton.setAttribute("aria-pressed", String(this.isPaused));
+    this.pauseButton.title = this.t("pauseHelp");
+  }
+  private async togglePause(): Promise<void> {
+    const nextCommand = this.isPaused ? "gameResume" : "gamePause";
+    const res = await this.client.call<{ paused: boolean }>(nextCommand);
+    this.isPaused = !!res?.paused;
+    this.updatePauseButton();
+  }
+  private async stepRun(): Promise<void> {
+    await this.client.call("gameStep");
+    if (this.drawAttribution) await this.refreshTree(true);
+    await this.refreshDetails(true);
   }
   private async nodeCall<T = unknown>(
     command: Command,

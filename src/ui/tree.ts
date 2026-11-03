@@ -26,6 +26,8 @@ export class HierarchyView {
   private activeFilter = "all";
   private bucket = "";
   private initialized = false;
+  private showDrawCalls = false;
+  private nodeDrawCallCounts = new Map<string, number>();
   private hoverId: string | null = null;
   private rows: HTMLDivElement[] = [];
   constructor(
@@ -128,6 +130,32 @@ export class HierarchyView {
     }
     for (const id of this.expanded)
       if (!this.byId.has(id)) this.expanded.delete(id);
+    this.nodeDrawCallCounts.clear();
+    const childMap = new Map<string, TreeNode[]>();
+    for (const node of this.nodes) {
+      if (node.parentId) {
+        let list = childMap.get(node.parentId);
+        if (!list) {
+          list = [];
+          childMap.set(node.parentId, list);
+        }
+        list.push(node);
+      }
+    }
+    const computeDc = (node: TreeNode): number => {
+      let count = node.drawCall !== undefined ? 1 : 0;
+      const children = childMap.get(node.id);
+      if (children) {
+        for (const child of children) {
+          count += computeDc(child);
+        }
+      }
+      this.nodeDrawCallCounts.set(node.id, count);
+      return count;
+    };
+    for (const node of this.nodes) {
+      if (!node.parentId) computeDc(node);
+    }
     this.filter();
   }
   has(id: string): boolean {
@@ -150,6 +178,10 @@ export class HierarchyView {
     this.bucket = bucket;
     if (changed) this.element.scrollTop = 0;
     this.filter();
+  }
+  setShowDrawCalls(show: boolean): void {
+    this.showDrawCalls = show;
+    this.render();
   }
   setSelected(id: string | null, reveal = false): void {
     this.selected = id;
@@ -251,7 +283,9 @@ export class HierarchyView {
       name.className = "ci-node-name";
       const hint = document.createElement("span");
       hint.className = "ci-node-hint";
-      row.append(expander, dot, name, hint);
+      const dcBadge = document.createElement("span");
+      dcBadge.className = "ci-dc-badge";
+      row.append(dcBadge, expander, dot, name, hint);
       this.rows.push(row);
       this.layer.append(row);
     }
@@ -283,18 +317,26 @@ export class HierarchyView {
         this.activeFilter !== "all" ||
         !!this.bucket;
       if (node.childCount) row.setAttribute("aria-expanded", String(expanded));
-      else row.removeAttribute("aria-expanded");
-      row.children[0].textContent = node.childCount
+      const dcElem = row.children[0] as HTMLElement;
+      dcElem.hidden = !this.showDrawCalls;
+      if (this.showDrawCalls) {
+        const dcCount =
+          this.nodeDrawCallCounts.get(node.id) ??
+          (node.drawCall !== undefined ? 1 : 0);
+        dcElem.textContent = `[${dcCount}]`;
+        dcElem.classList.toggle("has-dc", dcCount > 0);
+      }
+      row.children[1].textContent = node.childCount
         ? expanded
           ? "▾"
           : "▸"
         : "";
-      row.children[1].setAttribute(
+      row.children[2].setAttribute(
         "title",
         this.t(node.active ? "active" : "inactive"),
       );
-      row.children[2].textContent = node.name;
-      row.children[3].textContent = `${node.prefab ? "◆ " : ""}${node.componentTypes.join(" · ")}${node.drawCall === undefined ? "" : ` #${node.drawCall}`}`;
+      row.children[3].textContent = node.name;
+      row.children[4].textContent = `${node.prefab ? "◆ " : ""}${node.componentTypes.join(" · ")}${node.drawCall === undefined ? "" : ` #${node.drawCall}`}`;
       row.title = `${this.paths.get(node.id)}\n${node.componentTypes.join(", ")}${node.prefab ? `\n${this.t("prefab")}` : ""}`;
       if (node.id === this.selected) activeDescendant = row.id;
     });

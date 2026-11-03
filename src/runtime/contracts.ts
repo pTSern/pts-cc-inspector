@@ -111,6 +111,7 @@ export interface EngineComponent extends EngineAsset {
   useTint?: boolean;
   isAnimationCached?: () => boolean;
   renderData?: { chunk?: { meshBuffer?: EngineMeshBuffer } };
+  updateAlignment?: () => void;
 }
 export interface EngineCamera {
   targetTexture?: unknown;
@@ -242,6 +243,11 @@ export interface EngineDirector {
   getScene: () => EngineNode | null;
   on?: (event: string, listener: () => void) => void;
   off?: (event: string, listener: () => void) => void;
+  pause?: () => void;
+  resume?: () => void;
+  isPaused?: () => boolean;
+  mainLoop?: () => void;
+  tick?: (dt: number) => void;
   root?: {
     device?: EngineDevice;
     mainWindow?: unknown;
@@ -281,6 +287,10 @@ export interface CocosNamespace extends EngineObject {
     canvas?: HTMLCanvasElement;
     device?: EngineDevice;
     _renderContext?: { drawCalls?: number };
+    pause?: () => void;
+    resume?: () => void;
+    isPaused?: () => boolean;
+    step?: () => void;
   };
   profiler?: {
     isShowingStats?: () => boolean;

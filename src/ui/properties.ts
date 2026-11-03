@@ -1,5 +1,12 @@
-import type { Command, Json, NodeDetails, Property } from "../shared/protocol";
+import type {
+  Command,
+  Json,
+  NodeDetails,
+  Property,
+  PropertyGroup,
+} from "../shared/protocol";
 import type { MessageKey } from "../locales";
+import { renderWidgetComponent } from "./widget";
 
 export interface PropertyContext {
   t(key: MessageKey): string;
@@ -11,23 +18,63 @@ export interface PropertyContext {
   changed(): Promise<void>;
   preview(url: string, title: string): void;
 }
+
 export class PropertyView {
   readonly element = document.createElement("div");
   private readonly abort = new AbortController();
   private readonly expanded = new Set<string>();
+  private readonly collapsedGroups = new Set<string>();
+  private activeMenu: HTMLElement | null = null;
+
   constructor(
     private readonly details: NodeDetails,
     private readonly context: PropertyContext,
     expanded?: Set<string>,
+    collapsedGroupIds?: Set<string>,
   ) {
-    if (expanded) this.expanded = expanded;
+    if (expanded) this.expanded = new Set(expanded);
+    if (collapsedGroupIds) this.collapsedGroups = new Set(collapsedGroupIds);
     this.element.className = "ci-property-view";
+
     for (const group of details.groups) {
       const section = document.createElement("details");
       section.className = "ci-property-group";
-      section.open = true;
+      section.open = !this.collapsedGroups.has(group.id);
+      section.addEventListener(
+        "toggle",
+        () => {
+          if (section.open) this.collapsedGroups.delete(group.id);
+          else this.collapsedGroups.add(group.id);
+        },
+        { signal: this.abort.signal },
+      );
+
       const heading = document.createElement("summary");
-      heading.textContent = group.name;
+      heading.className = "ci-group-summary";
+
+      if (group.kind === "component") {
+        const titleBtn = document.createElement("button");
+        titleBtn.type = "button";
+        titleBtn.className = "ci-component-title-btn";
+        titleBtn.textContent = group.name;
+        titleBtn.title = "Click for component options";
+        titleBtn.addEventListener(
+          "click",
+          (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.showComponentMenu(group, titleBtn);
+          },
+          { signal: this.abort.signal },
+        );
+        heading.append(titleBtn);
+      } else {
+        const titleSpan = document.createElement("span");
+        titleSpan.className = "ci-group-title";
+        titleSpan.textContent = group.name;
+        heading.append(titleSpan);
+      }
+
       const badge = document.createElement("span");
       badge.className = "ci-badge";
       badge.textContent = context.t(
@@ -35,16 +82,25 @@ export class PropertyView {
       );
       heading.append(badge);
       section.append(heading);
-      if (!group.properties.length) {
-        const empty = document.createElement("p");
-        empty.className = "ci-muted";
-        empty.textContent = context.t("noProperties");
-        section.append(empty);
+
+      if (group.name === "cc.Widget" || group.name === "Widget") {
+        section.append(
+          renderWidgetComponent(group, context, this.abort.signal),
+        );
+      } else {
+        if (!group.properties.length) {
+          const empty = document.createElement("p");
+          empty.className = "ci-muted";
+          empty.textContent = context.t("noProperties");
+          section.append(empty);
+        }
+        for (const property of group.properties)
+          section.append(this.property(property));
       }
-      for (const property of group.properties)
-        section.append(this.property(property));
+
       this.element.append(section);
     }
+
     if (details.animations.length) {
       const section = document.createElement("section");
       section.className = "ci-debug-section";
@@ -81,34 +137,202 @@ export class PropertyView {
       }
       this.element.append(section);
     }
-    for (const kind of ["scripts", "handlers"] as const) {
-      const items = details[kind];
-      if (!items.length) continue;
+
+    // Only render event handlers in debug section (scripts are accessible directly from component header)
+    if (details.handlers.length) {
       const section = document.createElement("section");
       section.className = "ci-debug-section";
       const heading = document.createElement("h3");
-      heading.textContent = context.t(kind);
+      heading.textContent = context.t("handlers");
       section.append(heading);
-      for (const item of items) {
-        const button = this.button(
-          kind === "scripts" ? "inspectScript" : "inspectHandler",
-          async () => {
-            await context.call(
-              kind === "scripts" ? "inspectScript" : "inspectHandler",
-              { index: item.index },
-            );
-          },
-        );
+      for (const item of details.handlers) {
+        const button = this.button("inspectHandler", async () => {
+          await context.call("inspectHandler", { index: item.index });
+        });
         button.className = "ci-target-button";
-        button.textContent = `${context.t(kind === "scripts" ? "inspectScript" : "inspectHandler")}: ${item.name}${"event" in item ? ` · ${item.event}` : ""}`;
+        button.textContent = `${context.t("inspectHandler")}: ${item.name} · ${item.event}`;
         section.append(button);
       }
       this.element.append(section);
     }
   }
+
   get expandedPaths(): Set<string> {
     return this.expanded;
   }
+
+  get collapsedGroupIds(): Set<string> {
+    return this.collapsedGroups;
+  }
+
+  private closeActiveMenu(): void {
+    if (this.activeMenu) {
+      this.activeMenu.remove();
+      this.activeMenu = null;
+    }
+  }
+
+  private mountDropdown(menu: HTMLElement, anchor: HTMLElement): void {
+    this.closeActiveMenu();
+    this.activeMenu = menu;
+    document.body.append(menu);
+
+    const rect = anchor.getBoundingClientRect();
+    const menuWidth = 170;
+    let left = rect.left;
+    if (left + menuWidth > window.innerWidth - 8) {
+      left = Math.max(8, window.innerWidth - menuWidth - 8);
+    }
+    menu.style.position = "fixed";
+    menu.style.left = `${left}px`;
+    menu.style.top = `${rect.bottom + 4}px`;
+    menu.style.zIndex = "2147483647";
+
+    const onPointer = (e: Event): void => {
+      if (
+        !menu.contains(e.target as Node) &&
+        !anchor.contains(e.target as Node)
+      ) {
+        this.closeActiveMenu();
+        window.removeEventListener("pointerdown", onPointer, true);
+      }
+    };
+    window.addEventListener("pointerdown", onPointer, true);
+    this.abort.signal.addEventListener("abort", () => this.closeActiveMenu(), {
+      once: true,
+    });
+  }
+
+  private showComponentMenu(group: PropertyGroup, anchor: HTMLElement): void {
+    const menu = document.createElement("div");
+    menu.className = "ci-dropdown-menu";
+
+    const script = this.details.scripts.find((s) => s.name === group.name);
+    if (script) {
+      const inspectItem = document.createElement("button");
+      inspectItem.type = "button";
+      inspectItem.className = "ci-menu-item";
+      inspectItem.textContent = this.context.t("inspectScript");
+      inspectItem.addEventListener(
+        "click",
+        () => {
+          this.closeActiveMenu();
+          this.context.run(async () => {
+            await this.context.call("inspectScript", { index: script.index });
+          });
+        },
+        { signal: this.abort.signal },
+      );
+      menu.append(inspectItem);
+    }
+
+    const logItem = document.createElement("button");
+    logItem.type = "button";
+    logItem.className = "ci-menu-item";
+    logItem.textContent = this.context.t("logComponent");
+    logItem.addEventListener(
+      "click",
+      () => {
+        this.closeActiveMenu();
+        this.context.run(async () => {
+          await this.context.call("log", { path: [group.id] });
+        });
+      },
+      { signal: this.abort.signal },
+    );
+    menu.append(logItem);
+
+    const copyItem = document.createElement("button");
+    copyItem.type = "button";
+    copyItem.className = "ci-menu-item";
+    copyItem.textContent = this.context.t("copyComponent");
+    copyItem.addEventListener(
+      "click",
+      () => {
+        this.closeActiveMenu();
+        navigator.clipboard.writeText(group.name);
+      },
+      { signal: this.abort.signal },
+    );
+    menu.append(copyItem);
+
+    this.mountDropdown(menu, anchor);
+  }
+
+  private showPropertyMenu(
+    property: Property,
+    anchor: HTMLElement,
+    toggleExpand?: () => void,
+    isExpanded?: boolean,
+  ): void {
+    const menu = document.createElement("div");
+    menu.className = "ci-dropdown-menu";
+
+    if (property.expandable || property.children) {
+      const expandItem = document.createElement("button");
+      expandItem.type = "button";
+      expandItem.className = "ci-menu-item";
+      expandItem.textContent = this.context.t(
+        isExpanded ? "collapse" : "expand",
+      );
+      expandItem.addEventListener(
+        "click",
+        () => {
+          this.closeActiveMenu();
+          toggleExpand?.();
+        },
+        { signal: this.abort.signal },
+      );
+      menu.append(expandItem);
+    }
+
+    const logItem = document.createElement("button");
+    logItem.type = "button";
+    logItem.className = "ci-menu-item";
+    logItem.textContent = this.context.t("log");
+    logItem.addEventListener(
+      "click",
+      () => {
+        this.closeActiveMenu();
+        this.context.run(async () => {
+          await this.context.call("log", { path: property.path });
+        });
+      },
+      { signal: this.abort.signal },
+    );
+    menu.append(logItem);
+
+    const copyPathItem = document.createElement("button");
+    copyPathItem.type = "button";
+    copyPathItem.className = "ci-menu-item";
+    copyPathItem.textContent = this.context.t("copyPath");
+    copyPathItem.addEventListener(
+      "click",
+      () => {
+        this.closeActiveMenu();
+        navigator.clipboard.writeText(property.path.join("."));
+      },
+      { signal: this.abort.signal },
+    );
+    menu.append(copyPathItem);
+
+    const copyValItem = document.createElement("button");
+    copyValItem.type = "button";
+    copyValItem.className = "ci-menu-item";
+    copyValItem.textContent = this.context.t("copyValue");
+    copyValItem.addEventListener(
+      "click",
+      () => {
+        this.closeActiveMenu();
+        navigator.clipboard.writeText(JSON.stringify(property.value));
+      },
+      { signal: this.abort.signal },
+    );
+    menu.append(copyValItem);
+
+    this.mountDropdown(menu, anchor);
+  }
+
   private button(
     key: MessageKey,
     action: () => Promise<void>,
@@ -131,23 +355,91 @@ export class PropertyView {
     );
     return button;
   }
+
   private property(property: Property, depth = 0): HTMLElement {
     const wrapper = document.createElement("div");
     wrapper.className = "ci-property-wrap";
+
     const row = document.createElement("div");
     row.className = "ci-property-row";
     row.style.setProperty("--property-depth", String(Math.min(depth, 12)));
-    const label = document.createElement("label");
-    label.className = "ci-property-label";
-    label.textContent = property.label;
-    label.title = `${property.path.join(".")}${property.reason ? `\n${property.reason}` : ""}`;
+
+    const path = property.path;
+    const keyPath = JSON.stringify(path);
+    const isExpandable = !!(property.expandable || property.children);
+    const isExpanded = this.expanded.has(keyPath);
+
+    // Make property name a button that shows dropdown on click and displays tooltip on hover
+    const labelBtn = document.createElement("button");
+    labelBtn.type = "button";
+    labelBtn.className = "ci-property-name-btn";
+    if (property.reason) {
+      labelBtn.title = property.reason;
+      labelBtn.classList.add("has-reason");
+    } else {
+      labelBtn.title = property.path.join(".");
+    }
+
+    if (isExpandable) {
+      const chevron = document.createElement("span");
+      chevron.className = "ci-prop-chevron";
+      chevron.textContent = isExpanded ? "▾" : "▸";
+      labelBtn.append(chevron);
+    }
+
+    const isArrayIndex = /^\d+$/.test(property.key);
+    const nameSpan = document.createElement("span");
+    nameSpan.className = isArrayIndex
+      ? "ci-prop-name ci-array-index"
+      : "ci-prop-name";
+    nameSpan.textContent = isArrayIndex ? `[${property.key}]` : property.label;
+    labelBtn.append(nameSpan);
+
+    if (property.readOnly) {
+      const lock = document.createElement("span");
+      lock.className = "ci-readonly";
+      lock.textContent = "◇";
+      lock.setAttribute("aria-label", this.context.t("readonly"));
+      labelBtn.append(lock);
+    }
+
+    let toggleExpandFn: (() => Promise<void>) | undefined;
+
+    labelBtn.addEventListener(
+      "click",
+      (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.showPropertyMenu(
+          property,
+          labelBtn,
+          toggleExpandFn,
+          this.expanded.has(keyPath),
+        );
+      },
+      { signal: this.abort.signal },
+    );
+
+    if (isExpandable) {
+      labelBtn.addEventListener(
+        "dblclick",
+        (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          toggleExpandFn?.();
+        },
+        { signal: this.abort.signal },
+      );
+    }
+
     const control = document.createElement("div");
     control.className = "ci-property-control";
-    const path = property.path;
+
     const commit = async (value: Json): Promise<void> => {
       await this.context.call("set", { path, value });
       await this.context.changed();
     };
+
     const disable = <
       T extends
         | HTMLInputElement
@@ -164,6 +456,7 @@ export class PropertyView {
       input.setAttribute("aria-label", property.label);
       return input;
     };
+
     if (property.type === "boolean") {
       const input = disable(document.createElement("input"));
       input.type = "checkbox";
@@ -195,13 +488,11 @@ export class PropertyView {
         typeof property.value === "number" &&
         Number.isFinite(property.value)
       ) {
-        label.classList.add("ci-draggable");
-        label.addEventListener(
+        labelBtn.classList.add("ci-draggable");
+        labelBtn.addEventListener(
           "pointerdown",
           (event) => {
             if (event.button !== 0) return;
-            event.preventDefault();
-            input.focus();
             const startX = event.clientX;
             const start = Number(input.value);
             if (!Number.isFinite(start)) return;
@@ -217,8 +508,8 @@ export class PropertyView {
               () => this.abort.signal.removeEventListener("abort", abortDrag),
               { once: true },
             );
-            label.setPointerCapture(event.pointerId);
-            label.addEventListener(
+            labelBtn.setPointerCapture(event.pointerId);
+            labelBtn.addEventListener(
               "pointermove",
               (move) => {
                 let value =
@@ -236,11 +527,11 @@ export class PropertyView {
               drag.abort();
               if (Number(input.value) !== start) save();
             };
-            label.addEventListener("pointerup", end, {
+            labelBtn.addEventListener("pointerup", end, {
               once: true,
               signal: drag.signal,
             });
-            label.addEventListener(
+            labelBtn.addEventListener(
               "pointercancel",
               () => {
                 drag.abort();
@@ -288,42 +579,8 @@ export class PropertyView {
       !Array.isArray(property.value)
     ) {
       const value = property.value as Record<string, Json>;
-      const axes =
-        property.type === "size"
-          ? ["width", "height"]
-          : property.type === "color"
-            ? ["r", "g", "b", "a"]
-            : ["x", "y", "z", "w"].slice(0, Number(property.type.slice(-1)));
-      control.classList.add("ci-vector");
-      for (const axis of axes) {
-        if (typeof value[axis] !== "number") continue;
-        const field = document.createElement("label");
-        field.className = "ci-axis";
-        const title = document.createElement("span");
-        title.textContent = axis;
-        const input = disable(document.createElement("input"));
-        input.type = "number";
-        input.step = String(property.step ?? "any");
-        input.value = String(value[axis]);
-        input.setAttribute("aria-label", `${property.label} ${axis}`);
-        input.addEventListener(
-          "change",
-          () =>
-            this.context.run(async () => {
-              const next = input.value === "" ? NaN : Number(input.value);
-              if (!Number.isFinite(next))
-                throw new Error(this.context.t("invalidNumber"));
-              await commit({ ...value, [axis]: next });
-            }),
-          { signal: this.abort.signal },
-        );
-        field.append(title, input);
-        control.append(field);
-      }
       if (property.type === "color") {
-        const color = disable(document.createElement("input"));
-        color.type = "color";
-        color.className = "ci-color";
+        control.classList.add("ci-color-row");
         const hex = ["r", "g", "b"]
           .map((axis) =>
             Math.round(Math.max(0, Math.min(255, Number(value[axis]) || 0)))
@@ -331,21 +588,99 @@ export class PropertyView {
               .padStart(2, "0"),
           )
           .join("");
+        const color = disable(document.createElement("input"));
+        color.type = "color";
+        color.className = "ci-color";
         color.value = `#${hex}`;
+
+        const hexText = disable(document.createElement("input"));
+        hexText.type = "text";
+        hexText.className = "ci-hex-text";
+        hexText.value = `#${hex.toUpperCase()}`;
+        hexText.maxLength = 7;
+        hexText.spellcheck = false;
+
         color.addEventListener(
           "change",
-          () =>
+          () => {
+            const nextHex = color.value;
+            hexText.value = nextHex.toUpperCase();
             this.context.run(() =>
               commit({
                 ...value,
-                r: parseInt(color.value.slice(1, 3), 16),
-                g: parseInt(color.value.slice(3, 5), 16),
-                b: parseInt(color.value.slice(5, 7), 16),
+                r: parseInt(nextHex.slice(1, 3), 16),
+                g: parseInt(nextHex.slice(3, 5), 16),
+                b: parseInt(nextHex.slice(5, 7), 16),
               }),
-            ),
+            );
+          },
           { signal: this.abort.signal },
         );
-        control.append(color);
+
+        hexText.addEventListener(
+          "change",
+          () => {
+            let h = hexText.value.trim();
+            if (!h.startsWith("#")) h = "#" + h;
+            if (/^#[0-9a-fA-F]{6}$/.test(h)) {
+              color.value = h;
+              this.context.run(() =>
+                commit({
+                  ...value,
+                  r: parseInt(h.slice(1, 3), 16),
+                  g: parseInt(h.slice(3, 5), 16),
+                  b: parseInt(h.slice(5, 7), 16),
+                }),
+              );
+            } else {
+              hexText.value = color.value.toUpperCase();
+            }
+          },
+          { signal: this.abort.signal },
+        );
+
+        control.append(color, hexText);
+      } else {
+        const isVecLine = property.type === "vec2" || property.type === "vec3";
+        const isGrid2x2 =
+          property.type === "vec4" || (property.type as string) === "rect";
+        control.classList.add(
+          "ci-vector",
+          isVecLine
+            ? "ci-vector-line"
+            : isGrid2x2
+              ? "ci-vector-grid-2x2"
+              : "ci-vector-size",
+        );
+        const axes =
+          property.type === "size"
+            ? ["width", "height"]
+            : ["x", "y", "z", "w"].slice(0, Number(property.type.slice(-1)));
+        for (const axis of axes) {
+          if (typeof value[axis] !== "number") continue;
+          const field = document.createElement("label");
+          field.className = "ci-axis";
+          const title = document.createElement("span");
+          title.textContent = axis;
+          const input = disable(document.createElement("input"));
+          input.type = "number";
+          input.step = String(property.step ?? "any");
+          input.value = String(value[axis]);
+          input.setAttribute("aria-label", `${property.label} ${axis}`);
+          input.addEventListener(
+            "change",
+            () =>
+              this.context.run(async () => {
+                const next = input.value === "" ? NaN : Number(input.value);
+                if (!Number.isFinite(next))
+                  throw new Error(this.context.t("invalidNumber"));
+                await commit({ ...value, [axis]: next });
+              }),
+            { signal: this.abort.signal },
+          );
+          field.append(title, input);
+          control.append(field);
+        }
       }
     } else {
       const summary = document.createElement("span");
@@ -353,21 +688,26 @@ export class PropertyView {
       summary.textContent =
         property.value === null
           ? "null"
-          : typeof property.value === "object"
-            ? JSON.stringify(property.value).slice(0, 180)
-            : String(property.value);
+          : Array.isArray(property.value)
+            ? `Array [${property.value.length}]`
+            : typeof property.value === "object"
+              ? "{…}"
+              : String(property.value);
       control.append(summary);
     }
-    if (property.expandable || property.children) {
-      const key = JSON.stringify(path);
+
+    if (isExpandable) {
       const nested = document.createElement("div");
       nested.className = "ci-nested";
-      nested.hidden = true;
-      const expand = this.button("expand", async () => {
-        if (!nested.hidden) {
+      nested.hidden = !isExpanded;
+
+      toggleExpandFn = async (): Promise<void> => {
+        const currentlyExpanded = !nested.hidden;
+        if (currentlyExpanded) {
           nested.hidden = true;
-          expand.textContent = this.context.t("expand");
-          this.expanded.delete(key);
+          this.expanded.delete(keyPath);
+          const chev = labelBtn.querySelector(".ci-prop-chevron");
+          if (chev) chev.textContent = "▸";
           return;
         }
         const children =
@@ -378,12 +718,13 @@ export class PropertyView {
           ...children.map((child) => this.property(child, depth + 1)),
         );
         nested.hidden = false;
-        expand.textContent = this.context.t("collapse");
-        this.expanded.add(key);
-      });
-      control.prepend(expand);
+        this.expanded.add(keyPath);
+        const chev = labelBtn.querySelector(".ci-prop-chevron");
+        if (chev) chev.textContent = "▾";
+      };
+
       wrapper.append(nested);
-      if (this.expanded.has(key)) {
+      if (isExpanded) {
         this.context.run(async () => {
           const children =
             property.children ??
@@ -392,21 +733,10 @@ export class PropertyView {
           nested.replaceChildren(
             ...children.map((child) => this.property(child, depth + 1)),
           );
-          nested.hidden = false;
-          expand.textContent = this.context.t("collapse");
         });
       }
     }
-    if (
-      property.type === "object" ||
-      property.type === "array" ||
-      property.type === "image"
-    )
-      control.append(
-        this.button("log", async () => {
-          await this.context.call("log", { path });
-        }),
-      );
+
     if (property.type === "image") {
       control.append(
         this.button("preview", async () => {
@@ -465,31 +795,22 @@ export class PropertyView {
         { signal: this.abort.signal },
       );
     }
-    if (property.assetUuid || property.type === "image")
+
+    if (property.assetUuid || property.type === "image") {
       control.append(
         this.button("openAsset", async () => {
           await this.context.call("openAsset", { path });
         }),
       );
-    if (property.readOnly) {
-      const lock = document.createElement("span");
-      lock.className = "ci-readonly";
-      lock.textContent = "◇";
-      lock.title = property.reason ?? this.context.t("readonly");
-      lock.setAttribute("aria-label", this.context.t("readonly"));
-      label.append(lock);
     }
-    if (property.readOnly && property.reason) {
-      const reason = document.createElement("span");
-      reason.className = "ci-readonly-reason";
-      reason.textContent = property.reason;
-      control.append(reason);
-    }
-    row.append(label, control);
+
+    row.append(labelBtn, control);
     wrapper.prepend(row);
     return wrapper;
   }
+
   dispose(): void {
+    this.closeActiveMenu();
     this.abort.abort();
     this.element.remove();
   }

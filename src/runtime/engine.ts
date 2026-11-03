@@ -101,6 +101,26 @@ const COMPONENT_FIELDS = [
   "trim",
   "srcBlendFactor",
   "dstBlendFactor",
+  "alignMode",
+  "isAlignLeft",
+  "isAlignRight",
+  "isAlignTop",
+  "isAlignBottom",
+  "isAlignHorizontalCenter",
+  "isAlignVerticalCenter",
+  "left",
+  "right",
+  "top",
+  "bottom",
+  "horizontalCenter",
+  "verticalCenter",
+  "isAbsoluteLeft",
+  "isAbsoluteRight",
+  "isAbsoluteTop",
+  "isAbsoluteBottom",
+  "isAbsoluteHorizontalCenter",
+  "isAbsoluteVerticalCenter",
+  "target",
 ];
 const EVENT_FIELDS = [
   "clickEvents",
@@ -349,6 +369,11 @@ export class EngineInspector {
       enabled = atlas ? descriptor(atlas, "enabled") : undefined;
     if (enabled && (enabled.set || enabled.writable === true))
       capabilities.push("atlasToggle");
+    if (
+      typeof this.cc.game?.pause === "function" ||
+      typeof this.cc.director?.pause === "function"
+    )
+      capabilities.push("gameControl");
     return {
       supported,
       engineVersion: version,
@@ -826,6 +851,11 @@ export class EngineInspector {
     )
       owner.setAnchorPoint(value);
     else owner[key] = value;
+    if (typeof (owner as EngineComponent).updateAlignment === "function") {
+      try {
+        (owner as EngineComponent).updateAlignment!();
+      } catch {}
+    }
     const readback = this.location(node, loc.path);
     const actual = property(
       readback.owner,
@@ -930,6 +960,13 @@ export class EngineInspector {
     if (saved && this.fpsVisible(saved.engine) === saved.applied)
       this.setFps(saved.engine, saved.visible);
   }
+  private isGamePaused(): boolean {
+    const game = this.cc.game;
+    const director = this.cc.director;
+    if (typeof game?.isPaused === "function") return !!game.isPaused();
+    if (typeof director?.isPaused === "function") return !!director.isPaused();
+    return false;
+  }
   private gameInfo(): GameInfo {
     const tree = this.tree();
     const manager = this.atlasManager();
@@ -939,6 +976,7 @@ export class EngineInspector {
       nodes: tree.count,
       cachedObjects: this.nodes.size + this.components.size,
       fpsVisible: this.fpsVisible(),
+      paused: this.isGamePaused(),
       dynamicAtlas: manager
         ? {
             enabled: !!manager.enabled,
@@ -1029,6 +1067,31 @@ export class EngineInspector {
           );
         this.overlay.pick(nodes);
         return { picking: true };
+      }
+      case "gamePause": {
+        const game = this.cc.game;
+        const director = this.cc.director;
+        if (typeof game?.pause === "function") game.pause();
+        else if (typeof director?.pause === "function") director.pause();
+        else fail("UNSUPPORTED", "This engine does not expose game pause.");
+        return { paused: this.isGamePaused() };
+      }
+      case "gameResume": {
+        const game = this.cc.game;
+        const director = this.cc.director;
+        if (typeof game?.resume === "function") game.resume();
+        else if (typeof director?.resume === "function") director.resume();
+        else fail("UNSUPPORTED", "This engine does not expose game resume.");
+        return { paused: this.isGamePaused() };
+      }
+      case "gameStep": {
+        const game = this.cc.game;
+        const director = this.cc.director;
+        if (typeof game?.step === "function") game.step();
+        else if (typeof director?.mainLoop === "function") director.mainLoop();
+        else if (typeof director?.tick === "function") director.tick(1 / 60);
+        else fail("UNSUPPORTED", "This engine does not expose frame stepping.");
+        return { stepped: true };
       }
       case "fps": {
         const visible = args.visible ?? args.enabled;

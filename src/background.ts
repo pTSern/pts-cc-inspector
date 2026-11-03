@@ -290,7 +290,9 @@ async function handle(
   }
   if (message.type === "command") {
     if (!isRequest(message.request))
-      throw new Error("INVALID_REQUEST: Unknown inspector command.");
+      throw new Error(
+        `INVALID_REQUEST: Unknown inspector command (${JSON.stringify(message.request)}).`,
+      );
     if (message.request.command === "replaceImage") {
       const args = message.request.args as { dataUrl?: unknown } | undefined;
       if (
