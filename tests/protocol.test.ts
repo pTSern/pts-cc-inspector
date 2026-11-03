@@ -21,6 +21,7 @@ test("preference normalization drops unrelated identity, network and prototype d
   const normalized = normalizeSettings(input);
   assert.equal(normalized.locale, "vi");
   assert.equal(normalized.refreshMs, 500);
+  assert.equal(normalized.overlayColor, "#36c7ff");
   assert.equal("clientId" in normalized, false);
   assert.equal("endpoint" in normalized, false);
   assert.equal(
@@ -28,6 +29,14 @@ test("preference normalization drops unrelated identity, network and prototype d
     false,
   );
   assert.equal("polluted" in {}, false);
+  assert.equal(
+    normalizeSettings({ overlayColor: "#ff0077" }).overlayColor,
+    "#ff0077",
+  );
+  assert.equal(
+    normalizeSettings({ overlayColor: "invalid" }).overlayColor,
+    "#36c7ff",
+  );
 });
 
 test("page requests cannot introduce executable commands or malformed correlation metadata", () => {

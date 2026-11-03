@@ -142,6 +142,10 @@ const en = {
     "Offline inspector. Only preferences are stored; no analytics or advertising.",
   refreshInterval: "Refresh interval (ms)",
   resetSettings: "Reset preferences",
+  overlayColor: "Node overlay color",
+  overlayColorHelp:
+    "Color of the bounding box highlighting the selected or hovered node",
+  stepHelpPaused: "Step game by one frame",
   settingsTitle: "Inspector preferences",
 } as const;
 export type MessageKey = keyof typeof en;
@@ -286,6 +290,9 @@ const vi: Partial<Record<MessageKey, string>> = {
     "Trình kiểm tra ngoại tuyến. Chỉ lưu tùy chọn; không phân tích hay quảng cáo.",
   refreshInterval: "Chu kỳ làm mới (ms)",
   resetSettings: "Đặt lại tùy chọn",
+  overlayColor: "Màu khung viền nút",
+  overlayColorHelp: "Màu của khung viền khi chọn hoặc di chuột qua nút",
+  stepHelpPaused: "Chạy game tiếp một khung hình",
   settingsTitle: "Tùy chọn trình kiểm tra",
 };
 export function translator(locale: Locale): (key: MessageKey) => string {

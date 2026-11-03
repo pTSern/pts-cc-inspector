@@ -40,18 +40,27 @@ export class PropertyView {
       const section = document.createElement("details");
       section.className = "ci-property-group";
       section.open = !this.collapsedGroups.has(group.id);
-      section.addEventListener(
-        "toggle",
-        () => {
-          if (section.open) this.collapsedGroups.delete(group.id);
-          else this.collapsedGroups.add(group.id);
-        },
-        { signal: this.abort.signal },
-      );
-
       const heading = document.createElement("summary");
       heading.className = "ci-group-summary";
 
+      const chevron = document.createElement("span");
+      chevron.className = "ci-group-chevron";
+      chevron.textContent = section.open ? "v" : ">";
+      heading.append(chevron);
+
+      section.addEventListener(
+        "toggle",
+        () => {
+          if (section.open) {
+            this.collapsedGroups.delete(group.id);
+            chevron.textContent = "v";
+          } else {
+            this.collapsedGroups.add(group.id);
+            chevron.textContent = ">";
+          }
+        },
+        { signal: this.abort.signal },
+      );
       if (group.kind === "component") {
         const titleBtn = document.createElement("button");
         titleBtn.type = "button";
@@ -164,6 +173,9 @@ export class PropertyView {
   get collapsedGroupIds(): Set<string> {
     return this.collapsedGroups;
   }
+  get hasOpenMenu(): boolean {
+    return this.activeMenu !== null && this.activeMenu.isConnected;
+  }
 
   private closeActiveMenu(): void {
     if (this.activeMenu) {
@@ -189,20 +201,21 @@ export class PropertyView {
     menu.style.zIndex = "2147483647";
 
     const onPointer = (e: Event): void => {
-      if (
-        !menu.contains(e.target as Node) &&
-        !anchor.contains(e.target as Node)
-      ) {
+      const target = e.target as Node | null;
+      if (target && !menu.contains(target) && !anchor.contains(target)) {
         this.closeActiveMenu();
         window.removeEventListener("pointerdown", onPointer, true);
       }
     };
-    window.addEventListener("pointerdown", onPointer, true);
+    setTimeout(() => {
+      if (this.activeMenu === menu) {
+        window.addEventListener("pointerdown", onPointer, true);
+      }
+    }, 50);
     this.abort.signal.addEventListener("abort", () => this.closeActiveMenu(), {
       once: true,
     });
   }
-
   private showComponentMenu(group: PropertyGroup, anchor: HTMLElement): void {
     const menu = document.createElement("div");
     menu.className = "ci-dropdown-menu";
@@ -383,7 +396,16 @@ export class PropertyView {
     if (isExpandable) {
       const chevron = document.createElement("span");
       chevron.className = "ci-prop-chevron";
-      chevron.textContent = isExpanded ? "▾" : "▸";
+      chevron.textContent = isExpanded ? "v" : ">";
+      chevron.addEventListener(
+        "click",
+        (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          toggleExpandFn?.();
+        },
+        { signal: this.abort.signal },
+      );
       labelBtn.append(chevron);
     }
 
@@ -483,66 +505,6 @@ export class PropertyView {
         });
       input.addEventListener("change", save, { signal: this.abort.signal });
       control.append(input);
-      if (
-        !property.readOnly &&
-        typeof property.value === "number" &&
-        Number.isFinite(property.value)
-      ) {
-        labelBtn.classList.add("ci-draggable");
-        labelBtn.addEventListener(
-          "pointerdown",
-          (event) => {
-            if (event.button !== 0) return;
-            const startX = event.clientX;
-            const start = Number(input.value);
-            if (!Number.isFinite(start)) return;
-            const step =
-              property.step && property.step > 0 ? property.step : 0.1;
-            const drag = new AbortController();
-            const abortDrag = (): void => drag.abort();
-            this.abort.signal.addEventListener("abort", abortDrag, {
-              once: true,
-            });
-            drag.signal.addEventListener(
-              "abort",
-              () => this.abort.signal.removeEventListener("abort", abortDrag),
-              { once: true },
-            );
-            labelBtn.setPointerCapture(event.pointerId);
-            labelBtn.addEventListener(
-              "pointermove",
-              (move) => {
-                let value =
-                  start +
-                  (move.clientX - startX) * step * (move.shiftKey ? 0.1 : 1);
-                if (property.min !== undefined)
-                  value = Math.max(property.min, value);
-                if (property.max !== undefined)
-                  value = Math.min(property.max, value);
-                input.value = String(Number(value.toFixed(6)));
-              },
-              { signal: drag.signal },
-            );
-            const end = (): void => {
-              drag.abort();
-              if (Number(input.value) !== start) save();
-            };
-            labelBtn.addEventListener("pointerup", end, {
-              once: true,
-              signal: drag.signal,
-            });
-            labelBtn.addEventListener(
-              "pointercancel",
-              () => {
-                drag.abort();
-                input.value = String(start);
-              },
-              { once: true, signal: drag.signal },
-            );
-          },
-          { signal: this.abort.signal },
-        );
-      }
     } else if (property.type === "string") {
       const input = disable(document.createElement("textarea"));
       input.value = typeof property.value === "string" ? property.value : "";
@@ -707,7 +669,7 @@ export class PropertyView {
           nested.hidden = true;
           this.expanded.delete(keyPath);
           const chev = labelBtn.querySelector(".ci-prop-chevron");
-          if (chev) chev.textContent = "▸";
+          if (chev) chev.textContent = ">";
           return;
         }
         const children =
@@ -720,7 +682,7 @@ export class PropertyView {
         nested.hidden = false;
         this.expanded.add(keyPath);
         const chev = labelBtn.querySelector(".ci-prop-chevron");
-        if (chev) chev.textContent = "▾";
+        if (chev) chev.textContent = "v";
       };
 
       wrapper.append(nested);

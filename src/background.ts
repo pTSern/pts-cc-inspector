@@ -240,6 +240,9 @@ async function handle(
         : {};
     const next = normalizeSettings({ ...current, ...update });
     await chrome.storage.local.set({ settings: next });
+    for (const c of clients) {
+      post(c.port, { type: "settingsUpdated", settings: next });
+    }
     return next;
   }
   if (!client.attached)

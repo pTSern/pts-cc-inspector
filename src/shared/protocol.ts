@@ -31,6 +31,7 @@ export const COMMANDS = [
   "gamePause",
   "gameResume",
   "gameStep",
+  "overlayConfig",
 ] as const;
 export type Command = (typeof COMMANDS)[number];
 export type Json =
@@ -160,6 +161,7 @@ export interface Settings {
   autoProperties: boolean;
   hoverHighlight: boolean;
   selectionHighlight: boolean;
+  overlayColor: string;
 }
 export const DEFAULT_SETTINGS: Settings = {
   locale: "en",
@@ -168,6 +170,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoProperties: true,
   hoverHighlight: true,
   selectionHighlight: true,
+  overlayColor: "#36c7ff",
 };
 export interface FrameInfo {
   frameId: number;
@@ -228,5 +231,10 @@ export function normalizeSettings(value: unknown): Settings {
       typeof v.selectionHighlight === "boolean"
         ? v.selectionHighlight
         : DEFAULT_SETTINGS.selectionHighlight,
+    overlayColor:
+      typeof v.overlayColor === "string" &&
+      /^#[0-9a-fA-F]{6}$/.test(v.overlayColor)
+        ? v.overlayColor
+        : DEFAULT_SETTINGS.overlayColor,
   };
 }

@@ -74,6 +74,45 @@ async function render() {
     label.append(input);
     main.append(label);
   }
+  const colorLabel = document.createElement("label");
+  colorLabel.textContent = t("overlayColor");
+  colorLabel.title = t("overlayColorHelp");
+  const colorBox = document.createElement("div");
+  colorBox.style.display = "flex";
+  colorBox.style.alignItems = "center";
+  colorBox.style.gap = "6px";
+  const colorInput = document.createElement("input");
+  colorInput.type = "color";
+  colorInput.value = settings.overlayColor;
+  const hexInput = document.createElement("input");
+  hexInput.type = "text";
+  hexInput.style.width = "80px";
+  hexInput.style.fontFamily = "ui-monospace, Consolas, monospace";
+  hexInput.style.textTransform = "uppercase";
+  hexInput.style.textAlign = "center";
+  hexInput.value = settings.overlayColor.toUpperCase();
+  hexInput.maxLength = 7;
+  const updateColor = (val: string) => {
+    let h = val.trim();
+    if (!h.startsWith("#")) h = "#" + h;
+    if (/^#[0-9a-fA-F]{6}$/.test(h)) {
+      colorInput.value = h;
+      hexInput.value = h.toUpperCase();
+      void persist({ overlayColor: h });
+    }
+  };
+  colorInput.addEventListener("input", () => {
+    hexInput.value = colorInput.value.toUpperCase();
+    void persist({ overlayColor: colorInput.value });
+  });
+  colorInput.addEventListener("change", () => {
+    hexInput.value = colorInput.value.toUpperCase();
+    void persist({ overlayColor: colorInput.value });
+  });
+  hexInput.addEventListener("change", () => updateColor(hexInput.value));
+  colorBox.append(colorInput, hexInput);
+  colorLabel.append(colorBox);
+  main.append(colorLabel);
   const reset = document.createElement("button");
   reset.textContent = t("resetSettings");
   reset.addEventListener("click", async () => {

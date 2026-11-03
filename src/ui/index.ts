@@ -73,6 +73,7 @@ class InspectorUI {
   private stepButton!: HTMLButtonElement;
   private showDrawCalls = false;
   private showDrawCallsControl!: HTMLLabelElement;
+  private currentDetailsId: string | null = null;
   private menuAbort: AbortController | null = null;
   private dialogAbort: AbortController | null = null;
   private settingsQueue: Promise<void> = Promise.resolve();
@@ -114,6 +115,27 @@ class InspectorUI {
         if (typeof detail === "boolean") {
           this.panelVisible = detail;
           this.updateVisibility();
+        }
+      },
+      { signal: this.abort.signal },
+    );
+    window.addEventListener(
+      "pts-settings-updated",
+      (event) => {
+        const detail = (event as CustomEvent<unknown>).detail;
+        if (detail && typeof detail === "object") {
+          this.settings = normalizeSettings(detail);
+          this.startTimer();
+          this.renderSupport();
+          void this.client
+            .call("overlayConfig", { color: this.settings.overlayColor })
+            .catch(() => {});
+          if (this.selected && this.settings.selectionHighlight) {
+            void this.nodeCall("select", {
+              id: this.selected,
+              color: this.settings.overlayColor,
+            }).catch(() => {});
+          }
         }
       },
       { signal: this.abort.signal },
@@ -239,7 +261,10 @@ class InspectorUI {
     this.pauseButton = this.button("pause", () => this.togglePause());
     this.updatePauseButton();
     this.stepButton = this.button("step", () => this.stepRun());
-    this.stepButton.title = this.t("stepHelp");
+    this.stepButton.title = this.isPaused
+      ? this.t("stepHelpPaused")
+      : this.t("stepHelp");
+    this.stepButton.disabled = !this.isPaused;
     toolbar.append(
       brand,
       this.engineLabel,
@@ -605,13 +630,10 @@ class InspectorUI {
     if (this.disposed || epoch !== this.epoch) return;
     this.support = support;
     this.renderSupport();
-    const gameInfo = await this.client
-      .call<GameInfo>("gameInfo")
-      .catch(() => null);
-    if (gameInfo && typeof gameInfo.paused === "boolean") {
-      this.isPaused = gameInfo.paused;
-      this.updatePauseButton();
-    }
+    this.updatePauseButton();
+    void this.client
+      .call("overlayConfig", { color: this.settings.overlayColor })
+      .catch(() => {});
     if (!support.supported) {
       this.treeSnapshot = null;
       this.selected = null;
@@ -746,11 +768,16 @@ class InspectorUI {
     this.actionsButton.disabled = false;
     if (changed) {
       this.details = null;
+      this.currentDetailsId = null;
+      this.inspectorBody.scrollTop = 0;
       this.renderDetails();
     }
     if (this.settings.selectionHighlight)
       this.run(async () => {
-        await this.nodeCall("select", { id });
+        await this.nodeCall("select", {
+          id,
+          color: this.settings.overlayColor,
+        });
       });
     this.run(() => this.refreshDetails(true));
   }
@@ -763,10 +790,12 @@ class InspectorUI {
     const focused = document.activeElement;
     if (
       !manual &&
-      this.inspectorBody.contains(focused) &&
-      (focused instanceof HTMLInputElement ||
-        focused instanceof HTMLTextAreaElement ||
-        focused instanceof HTMLSelectElement)
+      (this.propertyView?.hasOpenMenu ||
+        Boolean(document.querySelector(".ci-dropdown-menu")) ||
+        (this.inspectorBody.contains(focused) &&
+          (focused instanceof HTMLInputElement ||
+            focused instanceof HTMLTextAreaElement ||
+            focused instanceof HTMLSelectElement)))
     )
       return;
     if (this.detailsFlight) {
@@ -813,6 +842,10 @@ class InspectorUI {
     }
   }
   private renderDetails(): void {
+    const isSameNode = this.currentDetailsId === this.details?.id;
+    const prevScroll = isSameNode ? this.inspectorBody.scrollTop : 0;
+    this.currentDetailsId = this.details?.id ?? null;
+
     const expanded = this.propertyView?.expandedPaths;
     const collapsedGroups = this.propertyView?.collapsedGroupIds;
     this.propertyView?.dispose();
@@ -827,6 +860,7 @@ class InspectorUI {
       empty.className = "ci-empty";
       empty.textContent = this.t(this.selected ? "loading" : "selectNode");
       this.inspectorBody.append(empty);
+      this.inspectorBody.scrollTop = 0;
       return;
     }
     const details = this.details;
@@ -855,6 +889,16 @@ class InspectorUI {
       collapsedGroups,
     );
     this.inspectorBody.append(this.propertyView.element);
+    if (isSameNode && prevScroll > 0) {
+      this.inspectorBody.scrollTop = prevScroll;
+      requestAnimationFrame(() => {
+        if (this.currentDetailsId === details.id) {
+          this.inspectorBody.scrollTop = prevScroll;
+        }
+      });
+    } else if (!isSameNode) {
+      this.inspectorBody.scrollTop = 0;
+    }
   }
   private updatePauseButton(): void {
     if (!this.pauseButton) return;
@@ -863,6 +907,12 @@ class InspectorUI {
       : `⏸ ${this.t("pause")}`;
     this.pauseButton.setAttribute("aria-pressed", String(this.isPaused));
     this.pauseButton.title = this.t("pauseHelp");
+    if (this.stepButton) {
+      this.stepButton.disabled = !this.isPaused;
+      this.stepButton.title = this.isPaused
+        ? this.t("stepHelpPaused")
+        : this.t("stepHelp");
+    }
   }
   private async togglePause(): Promise<void> {
     const nextCommand = this.isPaused ? "gameResume" : "gamePause";
@@ -904,7 +954,7 @@ class InspectorUI {
     this.hoverBusy = true;
     const id = this.hoverTarget;
     try {
-      await this.nodeCall("hover", { id });
+      await this.nodeCall("hover", { id, color: this.settings.overlayColor });
     } finally {
       this.hoverBusy = false;
       if (id !== this.hoverTarget && !this.disposed)
@@ -1183,6 +1233,74 @@ class InspectorUI {
           signal,
         ).label,
       );
+    const colorLabel = document.createElement("label");
+    colorLabel.className = "ci-settings-color-row";
+    const colorTitle = document.createElement("span");
+    colorTitle.textContent = this.t("overlayColor");
+    colorTitle.title = this.t("overlayColorHelp");
+
+    const colorControls = document.createElement("div");
+    colorControls.className = "ci-settings-color-controls";
+
+    const colorInput = document.createElement("input");
+    colorInput.type = "color";
+    colorInput.className = "ci-settings-color";
+    colorInput.value = this.settings.overlayColor;
+
+    const hexInput = document.createElement("input");
+    hexInput.type = "text";
+    hexInput.className = "ci-settings-color-hex";
+    hexInput.value = this.settings.overlayColor.toUpperCase();
+    hexInput.maxLength = 7;
+    hexInput.spellcheck = false;
+
+    let saveTimeout: number | undefined;
+    const saveColor = (val: string) => {
+      let h = val.trim();
+      if (!h.startsWith("#")) h = "#" + h;
+      if (/^#[0-9a-fA-F]{6}$/.test(h)) {
+        colorInput.value = h;
+        hexInput.value = h.toUpperCase();
+        this.settings.overlayColor = h;
+        window.clearTimeout(saveTimeout);
+        saveTimeout = window.setTimeout(() => {
+          this.save({ overlayColor: h });
+        }, 120);
+      }
+    };
+
+    colorInput.addEventListener("input", () => saveColor(colorInput.value), {
+      signal,
+    });
+    colorInput.addEventListener(
+      "change",
+      () => {
+        window.clearTimeout(saveTimeout);
+        saveColor(colorInput.value);
+      },
+      { signal },
+    );
+    hexInput.addEventListener(
+      "input",
+      () => {
+        if (/^#?[0-9a-fA-F]{6}$/.test(hexInput.value.trim())) {
+          saveColor(hexInput.value);
+        }
+      },
+      { signal },
+    );
+    hexInput.addEventListener(
+      "change",
+      () => {
+        window.clearTimeout(saveTimeout);
+        saveColor(hexInput.value);
+      },
+      { signal },
+    );
+
+    colorControls.append(colorInput, hexInput);
+    colorLabel.append(colorTitle, colorControls);
+    form.append(colorLabel);
     const help = document.createElement("p");
     help.className = "ci-muted";
     help.textContent = this.t("refreshHelp");
@@ -1204,6 +1322,17 @@ class InspectorUI {
           await this.nodeCall("select", { id: null });
         if (localeChanged) this.renderShell();
         this.startTimer();
+        if (patch.overlayColor) {
+          void this.client
+            .call("overlayConfig", { color: patch.overlayColor })
+            .catch(() => {});
+          if (this.selected && this.settings.selectionHighlight) {
+            void this.nodeCall("select", {
+              id: this.selected,
+              color: patch.overlayColor,
+            }).catch(() => {});
+          }
+        }
         this.setStatus(this.t("saved"));
       })
       .catch((error) => this.reportError(error));

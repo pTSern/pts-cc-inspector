@@ -1093,6 +1093,10 @@ export class EngineInspector {
         else fail("UNSUPPORTED", "This engine does not expose frame stepping.");
         return { stepped: true };
       }
+      case "overlayConfig": {
+        if (args.color !== undefined) this.overlay.setColor(args.color);
+        return { ok: true };
+      }
       case "fps": {
         const visible = args.visible ?? args.enabled;
         if (typeof visible !== "boolean")
@@ -1146,6 +1150,7 @@ export class EngineInspector {
       }
       case "hover":
       case "select": {
+        if (args.color !== undefined) this.overlay.setColor(args.color);
         const node = args.id === null ? null : this.requireNode(args, request);
         if (node && !this.overlay.bounds(node))
           fail(

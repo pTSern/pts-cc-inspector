@@ -360,6 +360,8 @@ body {
   flex: 1;
   scrollbar-width: thin;
   scrollbar-color: #495366 transparent;
+  overflow-anchor: none !important;
+  scroll-behavior: auto !important;
 }
 .ci-empty {
   padding: 28px 18px;
@@ -752,35 +754,47 @@ body {
 
 /* Property Name Button & Dropdown Menu */
 .ci-property-name-btn {
-  all: unset;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: #b3c2d5;
-  font-size: 11px;
-  cursor: pointer;
-  padding: 3px 6px;
-  border-radius: 3px;
-  text-align: left;
-  word-break: break-word;
-  user-select: none;
+  all: unset !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  color: #9cb2cc !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  min-height: auto !important;
+  cursor: pointer !important;
+  padding: 2px 2px !important;
+  border-radius: 2px !important;
+  text-align: left !important;
+  word-break: break-word !important;
+  user-select: none !important;
   transition:
-    background 0.15s,
-    color 0.15s;
+    color 0.12s,
+    text-decoration 0.12s !important;
 }
 .ci-property-name-btn:hover {
-  background: #232c3a;
-  color: #77b7ff;
+  background: transparent !important;
+  color: #58a6ff !important;
+  text-decoration: underline !important;
 }
 .ci-property-name-btn.has-reason {
-  text-decoration: underline dotted #e3b341;
-  text-underline-offset: 3px;
+  text-decoration: underline dotted #e3b341 !important;
+  text-underline-offset: 3px !important;
 }
 .ci-prop-chevron {
-  font-size: 9px;
-  color: #8397b2;
-  width: 10px;
-  flex-shrink: 0;
+  font-family: ui-monospace, Consolas, monospace !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  color: #6e7681 !important;
+  width: 9px !important;
+  flex-shrink: 0 !important;
+  text-align: center !important;
+}
+.ci-property-name-btn:hover .ci-prop-chevron {
+  color: #79c0ff !important;
 }
 .ci-dropdown-menu {
   background: #1e2633;
@@ -809,27 +823,55 @@ body {
 }
 
 /* Component Summary Title Button */
+.ci-group-summary::-webkit-details-marker {
+  display: none !important;
+}
 .ci-group-summary {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
-  background: #252d39;
-  cursor: pointer;
-  font-weight: 600;
-  overflow-wrap: anywhere;
+  list-style: none !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 8px 10px !important;
+  background: #252d39 !important;
+  cursor: pointer !important;
+  font-weight: 600 !important;
+  user-select: none !important;
+}
+.ci-group-chevron {
+  font-family: ui-monospace, Consolas, monospace !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  color: #8b949e !important;
+  width: 12px !important;
+  flex-shrink: 0 !important;
+  text-align: center !important;
+  user-select: none !important;
+}
+.ci-group-summary:hover .ci-group-chevron {
+  color: #79c0ff !important;
 }
 .ci-component-title-btn {
-  all: unset;
-  color: #79c0ff;
-  cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 3px;
-  transition: background 0.15s;
+  all: unset !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  color: #79c0ff !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  min-height: auto !important;
+  cursor: pointer !important;
+  padding: 2px 4px !important;
+  border-radius: 3px !important;
+  transition:
+    color 0.12s,
+    text-decoration 0.12s !important;
 }
 .ci-component-title-btn:hover {
-  background: #1c3d5a;
-  text-decoration: underline;
+  color: #a5d6ff !important;
+  text-decoration: underline !important;
+  background: rgba(56, 139, 253, 0.12) !important;
 }
 
 /* Dedicated cc.Widget visual component */
@@ -1055,4 +1097,20 @@ body {
   border: 1px solid #2d3848 !important;
   font-size: 11px;
   padding: 3px 6px !important;
+}
+.ci-settings-color-row {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  margin: 6px 0 !important;
+}
+.ci-settings-color {
+  width: 44px !important;
+  height: 27px !important;
+  border-radius: 4px !important;
+  padding: 1px 2px !important;
+  cursor: pointer !important;
+  background: transparent !important;
+  border: 1px solid var(--ci-border) !important;
 }

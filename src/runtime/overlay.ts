@@ -15,6 +15,19 @@ export class SelectionOverlay {
   private candidates: EngineNode[] = [];
   private lastMove = 0;
   private oldCursor = "";
+  private color = "#36c7ff";
+  setColor(hex: unknown): void {
+    if (typeof hex === "string" && /^#[0-9a-fA-F]{6}$/.test(hex)) {
+      this.color = hex;
+      if (this.element) {
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        this.element.style.border = `2px solid ${hex}`;
+        this.element.style.background = `rgba(${r},${g},${b},.15)`;
+      }
+    }
+  }
   constructor(
     private readonly engine: () => CocosNamespace,
     private readonly valid: (node: EngineNode) => boolean,
@@ -170,12 +183,18 @@ export class SelectionOverlay {
           position: "fixed",
           pointerEvents: "none",
           zIndex: "2147483646",
-          border: "2px solid #36c7ff",
-          background: "rgba(54,199,255,.10)",
+          border: `2px solid ${this.color}`,
+          background: `rgba(${parseInt(this.color.slice(1, 3), 16)},${parseInt(this.color.slice(3, 5), 16)},${parseInt(this.color.slice(5, 7), 16)},.15)`,
           boxSizing: "border-box",
         });
         document.documentElement.append(this.element);
       }
+      const hex = this.color;
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      this.element.style.border = `2px solid ${hex}`;
+      this.element.style.background = `rgba(${r},${g},${b},.15)`;
       Object.assign(this.element.style, {
         display: "block",
         left: `${bounds.left}px`,

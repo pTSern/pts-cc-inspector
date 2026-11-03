@@ -52,6 +52,12 @@ export class BrowserInspectorClient implements InspectorClient {
             detail: message.visible === true,
           }),
         );
+      } else if (message.type === "settingsUpdated") {
+        window.dispatchEvent(
+          new CustomEvent("pts-settings-updated", {
+            detail: message.settings,
+          }),
+        );
       }
     });
     this.port.onDisconnect.addListener(() => {
