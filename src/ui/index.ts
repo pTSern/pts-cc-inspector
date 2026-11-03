@@ -13,6 +13,7 @@ import type {
   AssetDetails,
   AssetNode,
   AssetTreeSnapshot,
+  ExportResult,
 } from "../shared/protocol";
 import { errorKeys, localeNames, localize } from "../locales";
 import type { MessageKey } from "../locales";
@@ -292,6 +293,7 @@ class InspectorUI {
       this.stepButton,
       this.button("gameInfo", () => this.showGameInfo()),
       this.button("settings", () => this.showSettings()),
+      this.button("exportProject", () => this.exportProject()),
     );
     if (this.options.floating && this.options.onClose)
       toolbar.append(this.button("close", () => this.options.onClose?.()));
@@ -515,6 +517,7 @@ class InspectorUI {
       assetTitle,
       this.assetCount,
       this.button("refreshAssets", () => this.refreshAssetTree(true), true),
+      this.button("exportProject", () => this.exportProject(), true),
     );
 
     const assetFilters = document.createElement("div");
@@ -1032,6 +1035,21 @@ class InspectorUI {
       this.assetCount.textContent = String(snapshot.count);
     } catch (error) {
       if (manual) this.reportError(error);
+    }
+  }
+
+  private async exportProject(): Promise<void> {
+    if (this.disposed) return;
+    this.setStatus(this.t("exporting"));
+    try {
+      const result = await this.client.call<ExportResult>("exportProject");
+      if (this.disposed) return;
+      const mb = (result.zipBytes / (1024 * 1024)).toFixed(2);
+      this.setStatus(
+        `${this.t("exportSuccess")} (${result.fileCount} files, ${mb} MB)`,
+      );
+    } catch (error) {
+      this.reportError(error);
     }
   }
 

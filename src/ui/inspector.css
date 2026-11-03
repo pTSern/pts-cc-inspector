@@ -112,12 +112,14 @@ body {
 .ci-toolbar {
   display: flex;
   flex: 0 0 auto;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
   gap: 6px;
   align-items: center;
-  padding: 9px 10px;
+  padding: 8px 10px;
   background: linear-gradient(180deg, #262e3a, #202733);
   border-bottom: 1px solid var(--ci-border);
+  scrollbar-width: thin;
 }
 .ci-brand {
   font-size: 13px;

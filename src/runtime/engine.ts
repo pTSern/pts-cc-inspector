@@ -32,6 +32,7 @@ import {
 import { SelectionOverlay } from "./overlay";
 import { imagePreview, replaceImage, type ImagePreview } from "./images";
 import { DrawCallAttribution } from "./draw-calls";
+import { exportCocosProject } from "./export";
 import {
   cocosNamespace,
   isObject,
@@ -1784,6 +1785,8 @@ export class EngineInspector {
         return this.assetTree();
       case "assetInspect":
         return this.assetInspect(args);
+      case "exportProject":
+        return await exportCocosProject(this.cc);
       case "openAsset": {
         if (typeof args.uuid === "string" && args.uuid) {
           return { uuid: args.uuid };

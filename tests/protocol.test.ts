@@ -52,6 +52,7 @@ test("page requests cannot introduce executable commands or malformed correlatio
   );
   assert.equal(isRequest(null), false);
   assert.equal(isRequest({ id: "1", command: "assetTree" }), true);
+  assert.equal(isRequest({ id: "1", command: "exportProject" }), true);
   assert.equal(
     isRequest({
       id: "1",

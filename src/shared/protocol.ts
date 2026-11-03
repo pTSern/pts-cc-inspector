@@ -34,6 +34,7 @@ export const COMMANDS = [
   "overlayConfig",
   "assetTree",
   "assetInspect",
+  "exportProject",
 ] as const;
 export type Command = (typeof COMMANDS)[number];
 export type Json =
@@ -105,6 +106,13 @@ export interface AssetTreeSnapshot {
   bundles: string[];
   nodes: AssetNode[];
   count: number;
+}
+export interface ExportResult {
+  ok: boolean;
+  filename: string;
+  fileCount: number;
+  totalBytes: number;
+  zipBytes: number;
 }
 export interface AssetDetails {
   id: string;

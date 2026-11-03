@@ -14,6 +14,7 @@ Lightweight, local, advertising-free Cocos Creator 2.x & 3.x runtime inspector e
 - **Engine Overlays & Atlas Debug:** Toggle the Cocos engine's built-in FPS/stats overlay, inspect dynamic atlas parameters, and view debug dynamic atlas pages.
 - **Event Breakpoints & Code Navigation:** Attach `debugger;` hooks to specific node touch or mouse events; inspect scripts and button handlers in DevTools.
 - **Asset Tree & Bundle Browser:** Two-tab hierarchy navigation (`Scene Tree` & `Assets Tree`). Accesses bundles directly from `cc.assetManager.bundles`, lists indexed assets by bundle, displays live image/texture previews, metadata, and quick copy/open actions.
+- **Project Build Exporter:** One-click `Export build` button that traverses all runtime assets, scripts, bundle configurations, pack files, settings, and stylesheets directly from the running game, compresses them into a standard PKZIP archive matching the Cocos Creator build folder structure, and triggers a browser download.
 - **Dual Display Modes:**
   - Standard **DevTools Panel**: appears as the `pts-cc-inspector` tab in browser developer tools.
   - In-Page **Floating Inspector**: activate directly from the extension popup onto any live game tab without opening DevTools.

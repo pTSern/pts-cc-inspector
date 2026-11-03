@@ -306,7 +306,8 @@ async function handle(
     if (
       message.request.command === "support" ||
       message.request.command === "tree" ||
-      message.request.command === "assetTree"
+      message.request.command === "assetTree" ||
+      message.request.command === "exportProject"
     )
       client.documentId = selectedBridge.documentId;
     else if (client.documentId !== selectedBridge.documentId)
