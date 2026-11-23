@@ -69,9 +69,34 @@ function nativeImage(texture: EngineTexture): CanvasImageSource | null {
 }
 export function imagePreview(value: EngineTexture): ImagePreview {
   const { texture, frame, rect, rotated } = target(value);
-  const source = nativeImage(texture);
-  const width = rect.width,
-    height = rect.height;
+  let source = nativeImage(texture);
+  let drawRect = rect;
+  let drawRotated = rotated;
+  let assetUuid = frame?._uuid || texture._uuid;
+  if (!source && frame?._original?._texture) {
+    const original = frame._original;
+    const origTexture = original._texture!;
+    const origSource = nativeImage(origTexture);
+    if (origSource) {
+      source = origSource;
+      drawRect = {
+        x:
+          typeof original._x === "number" && Number.isFinite(original._x)
+            ? original._x
+            : 0,
+        y:
+          typeof original._y === "number" && Number.isFinite(original._y)
+            ? original._y
+            : 0,
+        width: rect.width,
+        height: rect.height,
+      };
+      drawRotated = false;
+      assetUuid = frame._uuid || origTexture._uuid;
+    }
+  }
+  const width = drawRect.width,
+    height = drawRect.height;
   if (source) {
     const scale = Math.min(1, 256 / width, 256 / height);
     const canvas = document.createElement("canvas");
@@ -81,13 +106,13 @@ export function imagePreview(value: EngineTexture): ImagePreview {
     if (!context)
       fail("PREVIEW_UNAVAILABLE", "Canvas image preview is unavailable.");
     try {
-      if (rotated) {
+      if (drawRotated) {
         context.translate(0, canvas.height);
         context.rotate(-Math.PI / 2);
         context.drawImage(
           source,
-          rect.x,
-          rect.y,
+          drawRect.x,
+          drawRect.y,
           height,
           width,
           0,
@@ -98,8 +123,8 @@ export function imagePreview(value: EngineTexture): ImagePreview {
       } else
         context.drawImage(
           source,
-          rect.x,
-          rect.y,
+          drawRect.x,
+          drawRect.y,
           width,
           height,
           0,
@@ -111,7 +136,7 @@ export function imagePreview(value: EngineTexture): ImagePreview {
         url: canvas.toDataURL("image/png"),
         width,
         height,
-        assetUuid: frame?._uuid || texture._uuid,
+        assetUuid,
       };
     } catch {
       fail(
@@ -120,13 +145,16 @@ export function imagePreview(value: EngineTexture): ImagePreview {
       );
     }
   }
-  const url = texture.nativeUrl || texture.image?.nativeUrl;
+  const url =
+    texture.nativeUrl ||
+    texture.image?.nativeUrl ||
+    frame?._original?._texture?.nativeUrl;
   if (
     typeof url === "string" &&
     /^(https?:|blob:)/i.test(url) &&
     url.length < 8192
   )
-    return { url, width, height, assetUuid: frame?._uuid || texture._uuid };
+    return { url, width, height, assetUuid };
   fail(
     "PREVIEW_UNAVAILABLE",
     "This engine does not retain a readable image source or native image URL.",

@@ -1735,7 +1735,26 @@ class InspectorUI {
           }
         });
     } else if (event.type === "sceneChanged") {
-      if (this.support?.supported || this.treeSnapshot) {
+      const reason =
+        event.data && typeof event.data === "object" && "reason" in event.data
+          ? String((event.data as { reason?: unknown }).reason || "")
+          : "";
+      if (
+        !this.support?.supported ||
+        reason === "navigation" ||
+        reason === "reconnect"
+      ) {
+        this.epoch++;
+        this.closeMenu();
+        this.closeDialog();
+        this.support = null;
+        this.details = null;
+        this.treeSnapshot = null;
+        this.propertyView?.dispose();
+        this.propertyView = null;
+        this.renderDetails();
+        this.run(() => this.connect());
+      } else if (this.support?.supported || this.treeSnapshot) {
         this.epoch++;
         this.closeMenu();
         this.closeDialog();
@@ -1745,6 +1764,9 @@ class InspectorUI {
         this.propertyView = null;
         this.renderDetails();
         this.run(() => this.refreshTree(true));
+        if (this.activeHierarchyTab === "assets") {
+          this.run(() => this.refreshAssetTree());
+        }
       }
     } else if (event.type === "detached") {
       this.epoch++;
@@ -1798,11 +1820,15 @@ class InspectorUI {
     const code =
       typeof record.code === "string"
         ? record.code
-        : (/\b(?:E_)?(?:STALE_DOCUMENT|STALE_GENERATION|INVALID_NODE|INVALID_COMPONENT|NODE_NOT_FOUND|NOT_FOUND|DISCONNECTED|UNSUPPORTED|READ_ONLY)\b/.exec(
+        : (/\b(?:E_)?(?:STALE_DOCUMENT|STALE_GENERATION|INVALID_NODE|INVALID_COMPONENT|NODE_NOT_FOUND|NOT_FOUND|DISCONNECTED|UNSUPPORTED|READ_ONLY|FILE_ACCESS_DISABLED|PERMISSION_DENIED|ENGINE_UNAVAILABLE)\b/.exec(
             message,
           )?.[0] ?? "");
     const localized = errorKeys[code] ? this.t(errorKeys[code]) : message;
     this.setStatus(`${code ? `[${code}] ` : ""}${localized}`, true);
+    if (code === "ENGINE_UNAVAILABLE") {
+      this.support = null;
+      this.renderSupport();
+    }
     if (
       /STALE|GENERATION|SCENE_CHANGED|INVALID_NODE|INVALID_COMPONENT/.test(code)
     ) {

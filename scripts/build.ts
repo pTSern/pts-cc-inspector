@@ -6,9 +6,10 @@ import {
   copyFile,
   rm,
   readdir,
+  stat,
 } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { resolve } from "node:path";
+import { resolve, parse } from "node:path";
 import { createHash } from "node:crypto";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const dist = resolve(root, "dist");
@@ -80,8 +81,37 @@ const manifest = JSON.parse(
 if (
   manifest.key ||
   manifest.update_url ||
+  manifest.background?.service_worker !== "background.js" ||
   manifest.version !== "1.0.0" ||
   manifest.version_name !== "1.0.0-beta"
 )
   throw new Error("Invalid local extension manifest");
 console.log("Local extension ready: " + dist);
+
+const mirrorEnv = process.env.PTS_EXTENSION_MIRROR_DIR;
+const defaultMirror =
+  process.platform === "win32" && parse(root).root.toUpperCase() === "E:\\"
+    ? "E:\\pts-cc-inspector"
+    : null;
+const mirrorDir =
+  mirrorEnv === "" ? null : mirrorEnv ? resolve(mirrorEnv) : defaultMirror;
+
+if (mirrorDir) {
+  try {
+    await stat(parse(mirrorDir).root);
+    await mkdir(mirrorDir, { recursive: true });
+    const distFiles = await readdir(dist);
+    const existing = await readdir(mirrorDir);
+    for (const name of existing) {
+      if (!distFiles.includes(name)) {
+        await rm(resolve(mirrorDir, name), { recursive: true, force: true });
+      }
+    }
+    for (const name of distFiles) {
+      await copyFile(resolve(dist, name), resolve(mirrorDir, name));
+    }
+    console.log("Clean Chrome mirror synced: " + mirrorDir);
+  } catch (error) {
+    console.warn("Skipped mirror sync:", error);
+  }
+}

@@ -70,10 +70,41 @@ function validTab(tabId: unknown): tabId is number {
   return typeof tabId === "number" && Number.isSafeInteger(tabId) && tabId >= 0;
 }
 async function frames(tabId: number): Promise<FrameInfo[]> {
-  const values = await chrome.scripting.executeScript({
-    target: { tabId, allFrames: true },
-    func: () => ({ url: location.href, title: document.title }),
-  });
+  let values: chrome.scripting.InjectionResult<{
+    url: string;
+    title: string;
+  }>[];
+  try {
+    values = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: () => ({ url: location.href, title: document.title }),
+    });
+  } catch (error) {
+    const message = errorMessage(error);
+    const allowedFile =
+      typeof chrome.extension?.isAllowedFileSchemeAccess === "function"
+        ? await chrome.extension.isAllowedFileSchemeAccess().catch(() => true)
+        : true;
+    if (!allowedFile) {
+      let isFileTab = /file:\/\//i.test(message);
+      if (!isFileTab) {
+        try {
+          const tab = await chrome.tabs.get(tabId);
+          isFileTab = typeof tab?.url === "string" && tab.url.startsWith("file:");
+          // On file:// tabs without file-scheme access, tab.url is omitted by Chromium.
+          if (!tab?.url && /Cannot access contents of url|Cannot access a/i.test(message)) {
+            isFileTab = !/chrome:\/\/|edge:\/\/|about:|chrome-extension:\/\//i.test(message);
+          }
+        } catch {}
+      }
+      if (isFileTab) {
+        throw new Error(
+          "FILE_ACCESS_DISABLED: Enable 'Allow access to file URLs' for pts-cc-inspector in extension settings (chrome://extensions or edge://extensions) to inspect local HTML files.",
+        );
+      }
+    }
+    throw error;
+  }
   return values
     .filter((v) => v.result && !v.result.url.startsWith(ownOrigin))
     .map((v) => ({

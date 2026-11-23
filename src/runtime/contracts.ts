@@ -182,6 +182,11 @@ export interface EngineTexture extends EngineAsset {
   _genMipmaps?: boolean;
   _flipY?: boolean;
   _premultiplyAlpha?: boolean;
+  _original?: {
+    _texture?: EngineTexture;
+    _x?: number;
+    _y?: number;
+  };
 }
 export interface EngineBuffer extends EngineObject {
   objectID?: unknown;

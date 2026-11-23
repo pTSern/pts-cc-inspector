@@ -197,9 +197,35 @@ export class EngineInspector {
   private sceneDirector: EngineDirector | null = null;
   private drawAttribution: DrawCallAttribution | null = null;
   private sceneEvent: string | null = null;
+  private bootTimer: number | null = null;
+  private bootChecks = 0;
   private sceneLaunched = (): void => {
     if (!this.disposed) this.sync();
   };
+  private stopBootWatch(): void {
+    if (this.bootTimer !== null) {
+      clearInterval(this.bootTimer);
+      this.bootTimer = null;
+    }
+    this.bootChecks = 0;
+  }
+  private ensureBootWatch(): void {
+    if (this.disposed) return;
+    if (this.scene && typeof this.cc.director?.getScene === "function") {
+      this.stopBootWatch();
+      return;
+    }
+    this.bootChecks = 0;
+    if (this.bootTimer !== null) return;
+    this.bootTimer = window.setInterval(() => {
+      if (this.disposed || ++this.bootChecks > 80) {
+        this.stopBootWatch();
+        return;
+      }
+      const ok = this.sync();
+      if (ok && this.scene) this.stopBootWatch();
+    }, 250);
+  }
   constructor(private readonly emit: (event: RuntimeEvent) => void) {
     this.overlay = new SelectionOverlay(
       () => this.cc,
@@ -1710,12 +1736,19 @@ export class EngineInspector {
       return { detached: true };
     }
     const supported = this.sync();
-    if (request.command === "support") return this.support();
-    if (!supported)
+    if (request.command === "support") {
+      if (!supported || !this.scene) this.ensureBootWatch();
+      else this.stopBootWatch();
+      return this.support();
+    }
+    if (!supported) {
+      this.ensureBootWatch();
       fail(
         "ENGINE_UNAVAILABLE",
         "No supported Cocos 2.x or 3.x engine namespace is available.",
       );
+    }
+    if (!this.scene) this.ensureBootWatch();
     switch (request.command) {
       case "tree":
       case "gameInfo": {
@@ -2063,6 +2096,7 @@ export class EngineInspector {
     this.disposed = true;
     const failures: unknown[] = [];
     const cleanup = [
+      () => this.stopBootWatch(),
       () => this.clearBreakpoints(),
       () => this.overlay.dispose(),
       () => this.restoreFps(),

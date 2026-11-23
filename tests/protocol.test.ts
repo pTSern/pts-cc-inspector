@@ -1,7 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isRequest, normalizeSettings } from "../src/shared/protocol";
+import {
+  createSessionId,
+  isRequest,
+  messageTargetOrigin,
+  normalizeSettings,
+} from "../src/shared/protocol";
 import { safePath, valueKind } from "../src/runtime/properties";
+import {
+  decodeVirtualEntry,
+  normalizeExportPath,
+} from "../src/runtime/export";
 
 test("refresh preferences cannot schedule an unbounded or excessively tight polling loop", () => {
   assert.equal(normalizeSettings({ refreshMs: 1 }).refreshMs, 250);
@@ -88,4 +97,62 @@ test("safePath rejects prototype and constructor traversal", () => {
   assert.throws(() => safePath(["node", "constructor", "prototype"]), {
     name: "InspectorError",
   });
+});
+
+test("messageTargetOrigin uses wildcard for file:// and opaque origins while preserving http(s) origins", () => {
+  assert.equal(messageTargetOrigin("https://game.example.com"), "https://game.example.com");
+  assert.equal(messageTargetOrigin("http://127.0.0.1:7456"), "http://127.0.0.1:7456");
+  assert.equal(messageTargetOrigin("file://"), "*");
+  assert.equal(messageTargetOrigin("null"), "*");
+  assert.equal(messageTargetOrigin(""), "*");
+});
+
+test("createSessionId generates valid UUID strings", () => {
+  const id = createSessionId();
+  assert.match(
+    id,
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+  );
+});
+
+test("decodeVirtualEntry handles string text, base64 data URIs, and virtual file objects", () => {
+  const plain = decodeVirtualEntry('{"ok":true}');
+  assert.equal(new TextDecoder().decode(plain!), '{"ok":true}');
+
+  // 1x1 PNG header bytes encoded as base64 data URI (playable single-HTML format)
+  const pngBytes = decodeVirtualEntry("data:image/png;base64,iVBORw0KGgo=");
+  assert.deepEqual(
+    Array.from(pngBytes!),
+    [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+  );
+
+  const objBytes = decodeVirtualEntry({ text: "console.log(1);" });
+  assert.equal(new TextDecoder().decode(objBytes!), "console.log(1);");
+
+  const rawBytes = decodeVirtualEntry({ data: new Uint8Array([1, 2, 3]) });
+  assert.deepEqual(Array.from(rawBytes!), [1, 2, 3]);
+});
+
+test("normalizeExportPath preserves clean relative paths for file:// and nested http:// URLs", () => {
+  assert.equal(
+    normalizeExportPath(
+      "assets/main/config.json",
+      "file:///E:/__pTSern/.spy/HomeIsland/Sample.html",
+    ),
+    "assets/main/config.json",
+  );
+  assert.equal(
+    normalizeExportPath(
+      "file:///E:/__pTSern/.spy/HomeIsland/assets/main/index.js?v=1",
+      "file:///E:/__pTSern/.spy/HomeIsland/Sample.html",
+    ),
+    "assets/main/index.js",
+  );
+  assert.equal(
+    normalizeExportPath(
+      "assets/internal/config.json",
+      "http://127.0.0.1:8080/games/home/Sample.html",
+    ),
+    "assets/internal/config.json",
+  );
 });

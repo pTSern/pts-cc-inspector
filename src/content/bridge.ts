@@ -1,4 +1,9 @@
-import { CHANNEL, type RuntimeRequest } from "../shared/protocol";
+import {
+  CHANNEL,
+  createSessionId,
+  messageTargetOrigin,
+  type RuntimeRequest,
+} from "../shared/protocol";
 interface BridgeState {
   dispose: () => void;
   alive: boolean;
@@ -7,7 +12,7 @@ const world = globalThis as typeof globalThis & {
   __ptsInspectorBridge?: BridgeState;
 };
 if (!world.__ptsInspectorBridge?.alive) {
-  const session = crypto.randomUUID();
+  const session = createSessionId();
   let port: chrome.runtime.Port | null = null;
   let stopped = false;
   let retry: number | undefined;
@@ -41,7 +46,7 @@ if (!world.__ptsInspectorBridge?.alive) {
   const dispatch = (kind: string, extra: Record<string, unknown> = {}) =>
     window.postMessage(
       { channel: CHANNEL, session, kind, ...extra },
-      location.origin === "null" ? "*" : location.origin,
+      messageTargetOrigin(location.origin),
     );
   function dispose() {
     if (stopped) return;

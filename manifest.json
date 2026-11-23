@@ -7,7 +7,7 @@
   "description": "Local Cocos Creator 2.x/3.x scene, component and rendering inspector.",
   "minimum_chrome_version": "111",
   "action": {
-    "default_title": "pts-cc-inspector",
+    "default_title": "pTSInspec",
     "default_popup": "popup.html"
   },
   "background": {

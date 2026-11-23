@@ -129,6 +129,8 @@ const en = {
   notFound: "The object no longer exists.",
   disconnected: "The inspected frame disconnected. Refresh to reconnect.",
   permission: "Access to this frame is not permitted.",
+  fileAccessDisabled:
+    "Enable 'Allow access to file URLs' for pts-cc-inspector in extension settings (chrome://extensions or edge://extensions) to inspect local HTML files.",
   unsupportedAction: "This action is not supported by this engine.",
   readOnlyError: "This property cannot be edited.",
   imageType: "Choose a PNG, JPEG, or WebP image.",
@@ -289,6 +291,8 @@ const vi: Partial<Record<MessageKey, string>> = {
   invalidColor: "Dùng màu hexadecimal sáu chữ số.",
   disconnected: "Khung game đã ngắt kết nối. Làm mới để kết nối lại.",
   permission: "Không được phép truy cập khung này.",
+  fileAccessDisabled:
+    "Hãy bật 'Cho phép truy cập vào URL tệp' (Allow access to file URLs) cho pts-cc-inspector trong trang quản lý tiện ích để kiểm tra file HTML cục bộ.",
   unsupportedAction: "Engine này không hỗ trợ thao tác.",
   readOnlyError: "Không thể chỉnh sửa thuộc tính này.",
   imageType: "Chọn ảnh PNG, JPEG hoặc WebP.",
@@ -341,6 +345,7 @@ export const errorKeys: Record<string, MessageKey> = {
   DISCONNECTED: "disconnected",
   FRAME_DISCONNECTED: "disconnected",
   PERMISSION_DENIED: "permission",
+  FILE_ACCESS_DISABLED: "fileAccessDisabled",
   UNSUPPORTED: "unsupportedAction",
   UNSUPPORTED_COMMAND: "unsupportedAction",
   READ_ONLY: "readOnlyError",

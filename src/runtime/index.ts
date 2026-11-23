@@ -1,6 +1,7 @@
 import {
   CHANNEL,
   isRequest,
+  messageTargetOrigin,
   type RuntimeEvent,
   type RuntimeResponse,
 } from "../shared/protocol";
@@ -24,7 +25,7 @@ if (!world.__ptsInspectorRuntime) {
     if (session && !disposed)
       window.postMessage(
         { channel: CHANNEL, session, kind: "event", event },
-        location.origin === "null" ? "*" : location.origin,
+        messageTargetOrigin(location.origin),
       );
   };
   const inspector = new EngineInspector(emit);
@@ -85,7 +86,7 @@ if (!world.__ptsInspectorRuntime) {
           kind: "response",
           response,
         },
-        location.origin === "null" ? "*" : location.origin,
+        messageTargetOrigin(location.origin),
       );
   };
   function dispose() {

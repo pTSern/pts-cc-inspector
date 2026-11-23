@@ -35,8 +35,18 @@ async function start() {
         active: true,
         currentWindow: true,
       });
-      if (tab?.id === undefined || !tab.url || !/^https?:|^file:/.test(tab.url))
+      if (tab?.id === undefined) throw new Error(t("noActiveTab"));
+      const allowedFile =
+        typeof chrome.extension?.isAllowedFileSchemeAccess === "function"
+          ? await chrome.extension.isAllowedFileSchemeAccess().catch(() => true)
+          : true;
+      if (!tab.url) {
+        if (!allowedFile) throw new Error(t("fileAccessDisabled"));
         throw new Error(t("noActiveTab"));
+      }
+      if (tab.url.startsWith("file:") && !allowedFile)
+        throw new Error(t("fileAccessDisabled"));
+      if (!/^https?:|^file:/.test(tab.url)) throw new Error(t("noActiveTab"));
       const result = await chrome.runtime.sendMessage({
         type: "toggle-floating",
         tabId: tab.id,
